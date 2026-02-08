@@ -57,6 +57,8 @@
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <AdditionalIncludeDirectories>$(SolutionDir)\..;$(SolutionDir)\..\nvse;$(SolutionDir)\..\common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>nvse/prefix.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -70,6 +72,8 @@
       <WarningLevel>Level3</WarningLevel>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <AdditionalIncludeDirectories>$(SolutionDir)\..;$(SolutionDir)\..\nvse;$(SolutionDir)\..\common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>nvse/prefix.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -86,12 +90,63 @@
     </ManifestResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="dllmain.c" />
+    <ClCompile Include="..\nvse\containers.cpp" />
+    <ClCompile Include="..\nvse\GameAPI.cpp" />
+    <ClCompile Include="..\nvse\GameBSExtraData.cpp" />
+    <ClCompile Include="..\nvse\GameData.cpp" />
+    <ClCompile Include="..\nvse\GameExtraData.cpp" />
+    <ClCompile Include="..\nvse\GameForms.cpp" />
+    <ClCompile Include="..\nvse\GameObjects.cpp" />
+    <ClCompile Include="..\nvse\GameOSDepend.cpp" />
+    <ClCompile Include="..\nvse\GameProcess.cpp" />
+    <ClCompile Include="..\nvse\GameRTTI.cpp" />
+    <ClCompile Include="..\nvse\GameScript.cpp" />
+    <ClCompile Include="..\nvse\GameSettings.cpp" />
+    <ClCompile Include="..\nvse\GameTasks.cpp" />
+    <ClCompile Include="..\nvse\GameTiles.cpp" />
+    <ClCompile Include="..\nvse\GameTypes.cpp" />
+    <ClCompile Include="..\nvse\NiTypes.cpp" />
+    <ClCompile Include="..\nvse\printf.cpp" />
+    <ClCompile Include="..\nvse\SafeWrite.cpp" />
+    <ClCompile Include="..\nvse\Utilities.cpp" />
+    <ClCompile Include="..\nvse\utility.cpp" />
+    <ClCompile Include="dllmain.c">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+      </ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+      </ForcedIncludeFiles>
+    </ClCompile>
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\nvse\nvse_version.h" />
+    <ProjectReference Include="..\common\common_vc9.vcxproj">
+      <Project>{20c6411c-596f-4b85-be4e-8bc91f59d8a6}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\nvse\CommandTable.h" />
+    <ClInclude Include="..\nvse\containers.h" />
+    <ClInclude Include="..\nvse\GameAPI.h" />
+    <ClInclude Include="..\nvse\GameBSExtraData.h" />
+    <ClInclude Include="..\nvse\GameData.h" />
+    <ClInclude Include="..\nvse\GameEffects.h" />
+    <ClInclude Include="..\nvse\GameExtraData.h" />
+    <ClInclude Include="..\nvse\GameForms.h" />
+    <ClInclude Include="..\nvse\GameObjects.h" />
+    <ClInclude Include="..\nvse\GameOSDepend.h" />
+    <ClInclude Include="..\nvse\GameProcess.h" />
+    <ClInclude Include="..\nvse\GameRTTI.h" />
+    <ClInclude Include="..\nvse\GameScript.h" />
+    <ClInclude Include="..\nvse\GameSettings.h" />
+    <ClInclude Include="..\nvse\GameTasks.h" />
+    <ClInclude Include="..\nvse\GameTiles.h" />
+    <ClInclude Include="..\nvse\GameTypes.h" />
+    <ClInclude Include="..\nvse\GameUI.h" />
     <ClInclude Include="..\nvse\PluginAPI.h" />
+    <ClInclude Include="..\nvse\SafeWrite.h" />
+    <ClInclude Include="..\nvse\Utilities.h" />
+    <ClInclude Include="..\nvse\utility.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
