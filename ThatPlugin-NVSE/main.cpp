@@ -1,4 +1,7 @@
 #include "PluginAPI.h"
+#include "SafeWrite.h"
+#include "GameForms.h"
+#include <cstdint>
 
 #define EXTERN_DLL_EXPORT extern "C" __declspec(dllexport)
 
@@ -8,6 +11,14 @@ NVSEMessagingInterface* g_messagingInterface{};
 NVSEInterface* g_nvseInterface{};
 
 constexpr uint32_t g_PluginVersion = 100;
+
+bool __fastcall IsMeleeWeapon(TESObjectWEAP* weapon, void* edx)
+{
+	if (weapon->ammo.ammo)
+		return false;
+
+	return weapon->eWeaponType <= 2;
+}
 
 // This is a message handler for nvse events
 // With this, plugins can listen to messages such as whenever the game loads
@@ -70,6 +81,11 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 	// register to receive messages from NVSE
 	g_messagingInterface = static_cast<NVSEMessagingInterface*>(nvse->QueryInterface(kInterface_Messaging));
 	g_messagingInterface->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
+
+	if (!nvse->isEditor) {
+		// FNV
+		WriteRelCall(0x007724CB, UInt32(&IsMeleeWeapon));
+	}
 
 	return true;
 }
