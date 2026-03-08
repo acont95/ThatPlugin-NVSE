@@ -16,7 +16,8 @@ constexpr uint32_t g_PluginVersion = 100;
 CallDetour ObjectHitDetour{};
 CallDetour CombatHitDetour{};
 
-auto Actor_UseAmmo = (void(__thiscall*)(Actor*, int))0x008A89A0;
+UInt32 Actor_UseAmmo_Addr = 0x008A89A0;
+UInt32 Actor_GetLastHitData_Addr = 0x008A51A0;
 
 bool __fastcall Hook_IsMeleeWeapon(TESObjectWEAP* weapon, void* edx)
 {
@@ -28,14 +29,12 @@ bool __fastcall Hook_IsMeleeWeapon(TESObjectWEAP* weapon, void* edx)
 
 int __fastcall Hook_ObjectHit(Actor* actor, void* edx, bool abPowerAttack)
 {	
-	Actor* actorVar = actor;
-	auto Original_ObjectHit =
-		(int(__thiscall*)(Actor*, bool))ObjectHitDetour.GetOverwrittenAddr();
+	int result = ThisStdCall<int>(ObjectHitDetour.GetOverwrittenAddr(), actor, abPowerAttack);
 
-	int result = Original_ObjectHit(actorVar, abPowerAttack);
-
-	ThisStdCall(0x008A89A0, actorVar, 1);
-	// Actor_UseAmmo(actorVar, 1);
+	//ActorHitData* hitData = ThisStdCall<ActorHitData*>(Actor_GetLastHitData_Addr, actor);
+	if (result) {
+		ThisStdCall<void>(Actor_UseAmmo_Addr, actor, 1);
+	}
 
 	return result;
 }
@@ -45,19 +44,19 @@ void __fastcall Hook_CombatHit(
 	void* edx,
 	Actor* apTarget,
 	bool abPowerAttack,
-	Projectile* apProjectile,
-	char cMeleeEffect,
-	int a6,
-	int a7,
-	int a8)
+	void* apProjectile,
+	char cMeleeEffect)
 {
 	Actor* actorVar = actor;
-	auto Original_CombatHit =
-		(void(__thiscall*)(Actor*, Actor*, bool, Projectile*, char, int, int, int))
-		CombatHitDetour.GetOverwrittenAddr();
+	ThisStdCall<void>(
+		CombatHitDetour.GetOverwrittenAddr(), 
+		actorVar,
+		apTarget, 
+		abPowerAttack, 
+		apProjectile, 
+		cMeleeEffect);
 
-	Actor_UseAmmo(actorVar, 1);
-	Original_CombatHit(actorVar, apTarget, abPowerAttack, apProjectile, cMeleeEffect, a6, a7, a8);
+	ThisStdCall<void>(Actor_UseAmmo_Addr, actorVar, 1);
 }
 
 // This is a message handler for nvse events
