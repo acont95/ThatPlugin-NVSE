@@ -1,6 +1,7 @@
 #include "PluginAPI.h"
 #include "SafeWrite.h"
 #include "GameForms.h"
+#include "GameProcess.h"
 #include <cstdint>
 
 #define EXTERN_DLL_EXPORT extern "C" __declspec(dllexport)
@@ -12,12 +13,51 @@ NVSEInterface* g_nvseInterface{};
 
 constexpr uint32_t g_PluginVersion = 100;
 
-bool __fastcall IsMeleeWeapon(TESObjectWEAP* weapon, void* edx)
+CallDetour ObjectHitDetour{};
+CallDetour CombatHitDetour{};
+
+auto Actor_UseAmmo = (void(__thiscall*)(Actor*, int))0x008A89A0;
+
+bool __fastcall Hook_IsMeleeWeapon(TESObjectWEAP* weapon, void* edx)
 {
-	if (weapon->ammo.ammo)
+	if (weapon->eWeaponType <= 2 && weapon->ammo.ammo)
 		return false;
 
 	return weapon->eWeaponType <= 2;
+}
+
+int __fastcall Hook_ObjectHit(Actor* actor, void* edx, bool abPowerAttack)
+{	
+	Actor* actorVar = actor;
+	auto Original_ObjectHit =
+		(int(__thiscall*)(Actor*, bool))ObjectHitDetour.GetOverwrittenAddr();
+
+	int result = Original_ObjectHit(actorVar, abPowerAttack);
+
+	ThisStdCall(0x008A89A0, actorVar, 1);
+	// Actor_UseAmmo(actorVar, 1);
+
+	return result;
+}
+
+void __fastcall Hook_CombatHit(
+	Actor* actor,
+	void* edx,
+	Actor* apTarget,
+	bool abPowerAttack,
+	Projectile* apProjectile,
+	char cMeleeEffect,
+	int a6,
+	int a7,
+	int a8)
+{
+	Actor* actorVar = actor;
+	auto Original_CombatHit =
+		(void(__thiscall*)(Actor*, Actor*, bool, Projectile*, char, int, int, int))
+		CombatHitDetour.GetOverwrittenAddr();
+
+	Actor_UseAmmo(actorVar, 1);
+	Original_CombatHit(actorVar, apTarget, abPowerAttack, apProjectile, cMeleeEffect, a6, a7, a8);
 }
 
 // This is a message handler for nvse events
@@ -84,7 +124,9 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 
 	if (!nvse->isEditor) {
 		// FNV
-		WriteRelCall(0x007724CB, UInt32(&IsMeleeWeapon));
+		WriteRelCall(0x007724CB, UInt32(&Hook_IsMeleeWeapon));
+		ObjectHitDetour.WriteRelCall(0x008997FE, UInt32(&Hook_ObjectHit));
+		CombatHitDetour.WriteRelCall(0x0089996D, UInt32(&Hook_CombatHit));
 	}
 
 	return true;
