@@ -18,9 +18,12 @@ constexpr uint32_t g_PluginVersion = 100;
 CallDetour ObjectHitDetour{};
 CallDetour CombatHitDetour{};
 CallDetour GetCurrentAmmoDetour{};
+CallDetour HitMeDetour{};
+CallDetour InitializeHitDataDetour{};
 
 constexpr UInt32 Actor_UseAmmo_Addr = 0x008A89A0;
-constexpr UInt32 Projectile_Constructor_Addr = 0x8272CC38;
+
+constexpr UInt32 HitData_InitializeHitDataProj_Addr = 0x009B5650;
 
 bool __fastcall Hook_IsMeleeWeapon(TESObjectWEAP* weapon, void* edx)
 {
@@ -54,11 +57,6 @@ void __fastcall Hook_CombatHit(
 {
 	Actor* actorVar = actor;
 
-	//TESObjectWEAP* weapon = actor->GetEquippedWeapon();
-	//Projectile* projectile = New<Projectile, Projectile_Constructor_Addr>(
-	//	
-	//);
-
 	ThisStdCall<void>(
 		CombatHitDetour.GetOverwrittenAddr(), 
 		actorVar,
@@ -76,6 +74,37 @@ TESAmmo* __fastcall Hook_GetCurrentAmmo(TESObjectWEAP* weapon, void* edx, Actor*
 		return nullptr;
 
 	return ThisStdCall<TESAmmo*>(GetCurrentAmmoDetour.GetOverwrittenAddr(), weapon, apWeaponHolder);
+}
+
+TESAmmo* __fastcall Hook_HitMe(Actor* actor, void* edx, ActorHitData* hitData, char cMeleeEffect)
+{
+	
+	if (!(hitData->fatigueDmg > 0.0f))
+		*(int*)0 = 0;
+
+	return ThisStdCall<TESAmmo*>(HitMeDetour.GetOverwrittenAddr(), actor, hitData, cMeleeEffect);
+}
+
+void __cdecl Hook_InitializeHitData(
+    ActorHitData* apData,
+    Actor* apAggressor,
+    Actor* apTarget,
+    void* apWeaponItem,
+    bool abPowerAttack,
+    void* apProjectile)
+{
+    CdeclCall<void>(
+		InitializeHitDataDetour.GetOverwrittenAddr(),
+        apData,
+        apAggressor,
+        apTarget,
+        apWeaponItem,
+		abPowerAttack,
+        apProjectile
+    );
+	if (apData->fatigueDmg > 0.0f) {
+		*(int*)0 = 0;
+	}
 }
 
 // This is a message handler for nvse events
@@ -153,7 +182,8 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 		GetCurrentAmmoDetour.WriteRelCall(0x00948E0E, UInt32(&Hook_GetCurrentAmmo));
 		GetCurrentAmmoDetour.WriteRelCall(0x00949E39, UInt32(&Hook_GetCurrentAmmo));
 
-		WriteRelCall(0x0089CD77, UInt32(&Hook_IsMeleeWeapon));
+		//HitMeDetour.WriteRelCall(0x0089A738, UInt32(&Hook_HitMe));
+		InitializeHitDataDetour.WriteRelCall(0x0089A28A, UInt32(&Hook_InitializeHitData));
 	}
 
 	return true;
