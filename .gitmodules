@@ -1,3 +1,6 @@
 [submodule "external/NVSE"]
 	path = external/NVSE
 	url = https://github.com/xNVSE/NVSE.git
+[submodule "external/CommonLibFNV"]
+	path = external/CommonLibFNV
+	url = https://github.com/acont95/CommonLibFNV.git
