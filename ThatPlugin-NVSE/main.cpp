@@ -1,10 +1,14 @@
+#include <cstdint>
 #include "PluginAPI.h"
 #include "SafeWrite.h"
-#include "GameProcess.h"
-#include "GameObjects.h"
-#include "GameTiles.h"
-#include "Utilities.h"
-#include <cstdint>
+#include "Bethesda/Actor.hpp"
+#include "Bethesda/HitData.hpp"
+#include "Bethesda/TESAmmo.hpp"
+#include "Bethesda/TESObjectWEAP.hpp"
+#include "Bethesda/Projectile.hpp"
+#include "Bethesda/Tile.hpp"
+#include "Gamebryo/NiPoint3.hpp"
+
 
 #define EXTERN_DLL_EXPORT extern "C" __declspec(dllexport)
 
@@ -20,25 +24,29 @@ CallDetour CombatHitDetour{};
 CallDetour GetCurrentAmmoDetour{};
 CallDetour HitMeDetour{};
 CallDetour InitializeHitDataDetour{};
+CallDetour ReduceDamageDetour{};
 
-constexpr UInt32 Actor_UseAmmo_Addr = 0x008A89A0;
+constexpr uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
+constexpr uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
+constexpr uint32_t Projectile_Constructor_Addr = 0x009BBEF0;
 
-constexpr UInt32 HitData_InitializeHitDataProj_Addr = 0x009B5650;
+static CommonLib::NiPoint3 ZERO = { 0.0f, 0.0f, 0.0f };
 
-bool __fastcall Hook_IsMeleeWeapon(TESObjectWEAP* weapon, void* edx)
+bool __fastcall Hook_IsMeleeWeapon(CommonLib::TESObjectWEAP* weapon, void* edx)
 {
-	if (weapon->eWeaponType <= 2 && weapon->ammo.ammo)
+	if (weapon->data.eType <= 2 && weapon->pFormAmmo)
 		return false;
 
-	return weapon->eWeaponType <= 2;
+	return weapon->data.eType <= 2;
 }
 
-Tile* __fastcall Hook_ObjectHit(Actor* actor, void* edx, bool abPowerAttack)
+CommonLib::Tile* __fastcall Hook_ObjectHit(CommonLib::Actor* actor, void* edx, bool abPowerAttack)
 {	
-	Tile* result = ThisStdCall<Tile*>(ObjectHitDetour.GetOverwrittenAddr(), actor, abPowerAttack);
-	TESObjectWEAP* weapon = actor->GetEquippedWeapon();
+	CommonLib::Tile* result = ThisStdCall<CommonLib::Tile*>(ObjectHitDetour.GetOverwrittenAddr(), actor, abPowerAttack);
+	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, actor);
 
-	bool isAutomatic = weapon->weaponFlags1.Extract(1);
+	// Need to stop animation for auto weapons
+	bool isAutomatic = (weapon->data.cFlags >> 1) & 1;
 
 	if (weapon && (result || isAutomatic)) {
 		ThisStdCall<void>(Actor_UseAmmo_Addr, actor, 1);
@@ -48,14 +56,14 @@ Tile* __fastcall Hook_ObjectHit(Actor* actor, void* edx, bool abPowerAttack)
 }
 
 void __fastcall Hook_CombatHit(
-	Actor* actor,
+	CommonLib::Actor* actor,
 	void* edx,
-	Actor* apTarget,
+	CommonLib::Actor* apTarget,
 	bool abPowerAttack,
-	Projectile* apProjectile,
+	CommonLib::Projectile* apProjectile,
 	char cMeleeEffect)
 {
-	Actor* actorVar = actor;
+	CommonLib::Actor* actorVar = actor;
 
 	ThisStdCall<void>(
 		CombatHitDetour.GetOverwrittenAddr(), 
@@ -68,43 +76,35 @@ void __fastcall Hook_CombatHit(
 	ThisStdCall<void>(Actor_UseAmmo_Addr, actorVar, 1);
 }
 
-TESAmmo* __fastcall Hook_GetCurrentAmmo(TESObjectWEAP* weapon, void* edx, Actor* apWeaponHolder)
+CommonLib::TESAmmo* __fastcall Hook_GetCurrentAmmo(CommonLib::TESObjectWEAP* weapon, void* edx, CommonLib::Actor* apWeaponHolder)
 {
-	if (weapon->eWeaponType <= 2 && weapon->ammo.ammo)
+	if (weapon->data.eType <= 2 && weapon->pFormAmmo)
 		return nullptr;
 
-	return ThisStdCall<TESAmmo*>(GetCurrentAmmoDetour.GetOverwrittenAddr(), weapon, apWeaponHolder);
+	return ThisStdCall<CommonLib::TESAmmo*>(GetCurrentAmmoDetour.GetOverwrittenAddr(), weapon, apWeaponHolder);
 }
 
-TESAmmo* __fastcall Hook_HitMe(Actor* actor, void* edx, ActorHitData* hitData, char cMeleeEffect)
+void __fastcall Hook_ReduceDamage(CommonLib::HitData* hitData, void* edx, bool abIgnoreBlocking)
 {
-	
-	if (!(hitData->fatigueDmg > 0.0f))
-		*(int*)0 = 0;
+	CommonLib::TESObjectWEAP* apFromWeapon = hitData->pWeapon;
+	if (apFromWeapon && apFromWeapon->data.eType <= 2 && apFromWeapon->pFormAmmo) {
+		CommonLib::BGSProjectile* apProjectileBase = apFromWeapon->data.pProjectile;
+		CommonLib::TESObjectREFR* apShooter = hitData->pAggressor;
 
-	return ThisStdCall<TESAmmo*>(HitMeDetour.GetOverwrittenAddr(), actor, hitData, cMeleeEffect);
-}
-
-void __cdecl Hook_InitializeHitData(
-    ActorHitData* apData,
-    Actor* apAggressor,
-    Actor* apTarget,
-    void* apWeaponItem,
-    bool abPowerAttack,
-    void* apProjectile)
-{
-    CdeclCall<void>(
-		InitializeHitDataDetour.GetOverwrittenAddr(),
-        apData,
-        apAggressor,
-        apTarget,
-        apWeaponItem,
-		abPowerAttack,
-        apProjectile
-    );
-	if (apData->fatigueDmg > 0.0f) {
-		*(int*)0 = 0;
+		if (apProjectileBase && apShooter) {
+			CommonLib::Projectile* projectile = New<CommonLib::Projectile, Projectile_Constructor_Addr>(
+				apProjectileBase,
+				apShooter,
+				apFromWeapon,
+				&ZERO,
+				0.0,
+				0.0
+			);
+			hitData->pSourceRef = projectile;
+		}
 	}
+
+	return ThisStdCall<void>(ReduceDamageDetour.GetOverwrittenAddr(), hitData, abIgnoreBlocking);
 }
 
 // This is a message handler for nvse events
@@ -170,8 +170,10 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 	g_messagingInterface->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
 
 	if (!nvse->isEditor) {
-		// FNV
+		// Hook TESObjectWEAP::IsMeleeWeapon call in HUDMainMenu::UpdateWeaponStatus
 		WriteRelCall(0x007724CB, UInt32(&Hook_IsMeleeWeapon));
+
+		// Hook Actor::ObjectHit and Actor::CombatHit calls in Actor::MeleeAttack
 		ObjectHitDetour.WriteRelCall(0x008997FE, UInt32(&Hook_ObjectHit));
 		CombatHitDetour.WriteRelCall(0x0089996D, UInt32(&Hook_CombatHit));
 
@@ -182,8 +184,8 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 		GetCurrentAmmoDetour.WriteRelCall(0x00948E0E, UInt32(&Hook_GetCurrentAmmo));
 		GetCurrentAmmoDetour.WriteRelCall(0x00949E39, UInt32(&Hook_GetCurrentAmmo));
 
-		//HitMeDetour.WriteRelCall(0x0089A738, UInt32(&Hook_HitMe));
-		InitializeHitDataDetour.WriteRelCall(0x0089A28A, UInt32(&Hook_InitializeHitData));
+		// Hook HitData::ReduceDamage in HitData::InitializeHitData
+		ReduceDamageDetour.WriteRelCall(0x009B5623, UInt32(&Hook_ReduceDamage));
 	}
 
 	return true;
