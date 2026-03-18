@@ -17,7 +17,7 @@ PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 NVSEMessagingInterface* g_messagingInterface{};
 NVSEInterface* g_nvseInterface{};
 
-constexpr uint32_t g_PluginVersion = 100;
+constexpr char g_PluginVersion[] = "0.1.0";
 
 CallDetour ObjectHitDetour{};
 CallDetour CombatHitDetour{};
@@ -29,13 +29,16 @@ CallDetour ReduceDamageDetour{};
 constexpr uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
 constexpr uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
 constexpr uint32_t Projectile_Constructor_Addr = 0x009BBEF0;
-constexpr uint32_t ExpelShellCasing_Addr = 0x00524DB0;
 
 static CommonLib::NiPoint3 ZERO = { 0.0f, 0.0f, 0.0f };
 
+bool isBallisticMelee(CommonLib::TESObjectWEAP* weapon) {
+	return weapon->data.eType <= 2 && weapon->pFormAmmo;
+}
+
 bool __fastcall Hook_IsMeleeWeapon(CommonLib::TESObjectWEAP* weapon, void* edx)
 {
-	if (weapon->data.eType <= 2 && weapon->pFormAmmo)
+	if (isBallisticMelee(weapon))
 		return false;
 
 	return weapon->data.eType <= 2;
@@ -46,12 +49,11 @@ CommonLib::Tile* __fastcall Hook_ObjectHit(CommonLib::Actor* actor, void* edx, b
 	CommonLib::Tile* result = ThisStdCall<CommonLib::Tile*>(ObjectHitDetour.GetOverwrittenAddr(), actor, abPowerAttack);
 	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, actor);
 
-	// Need to stop animation for auto weapons
-	bool isAutomatic = (weapon->data.cFlags >> 1) & 1;
-
-	if (weapon && weapon->data.eType <= 2 && weapon->pFormAmmo && (result || isAutomatic)) {
-		ThisStdCall<void>(Actor_UseAmmo_Addr, actor, 1);
-		ThisStdCall<void>(ExpelShellCasing_Addr, weapon, actor);
+	if (weapon && isBallisticMelee(weapon)) {
+		bool isAutomatic = (weapon->data.cFlags >> 1) & 1;
+		if (result || isAutomatic) {
+			ThisStdCall<void>(Actor_UseAmmo_Addr, actor, 1);
+		}
 	}
 
 	return result;
@@ -74,15 +76,14 @@ void __fastcall Hook_CombatHit(
 		cMeleeEffect);
 
 	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, actor);
-	if (weapon && weapon->data.eType <= 2 && weapon->pFormAmmo) {
+	if (weapon && isBallisticMelee(weapon)) {
 		ThisStdCall<void>(Actor_UseAmmo_Addr, actor, 1);
-		ThisStdCall<void>(ExpelShellCasing_Addr, weapon, actor);
 	}
 }
 
 CommonLib::TESAmmo* __fastcall Hook_GetCurrentAmmo(CommonLib::TESObjectWEAP* weapon, void* edx, CommonLib::Actor* apWeaponHolder)
 {
-	if (weapon->data.eType <= 2 && weapon->pFormAmmo)
+	if (weapon && isBallisticMelee(weapon))
 		return nullptr;
 
 	return ThisStdCall<CommonLib::TESAmmo*>(GetCurrentAmmoDetour.GetOverwrittenAddr(), weapon, apWeaponHolder);
@@ -91,7 +92,7 @@ CommonLib::TESAmmo* __fastcall Hook_GetCurrentAmmo(CommonLib::TESObjectWEAP* wea
 void __fastcall Hook_ReduceDamage(CommonLib::HitData* hitData, void* edx, bool abIgnoreBlocking)
 {
 	CommonLib::TESObjectWEAP* apFromWeapon = hitData->pWeapon;
-	if (apFromWeapon && apFromWeapon->data.eType <= 2 && apFromWeapon->pFormAmmo) {
+	if (apFromWeapon && isBallisticMelee(apFromWeapon)) {
 		CommonLib::BGSProjectile* apProjectileBase = apFromWeapon->data.pProjectile;
 		CommonLib::TESObjectREFR* apShooter = hitData->pAggressor;
 
@@ -135,7 +136,7 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 	case NVSEMessagingInterface::kMessage_RenameGameName: break;
 	case NVSEMessagingInterface::kMessage_RenameNewGameName: break;
 	case NVSEMessagingInterface::kMessage_DeferredInit: 
-		Console_Print("That Plugin NVSE version: %.2f", (g_PluginVersion / 100.0F));
+		Console_Print("That Plugin NVSE version: %s", g_PluginVersion);
 		break;
 	case NVSEMessagingInterface::kMessage_ClearScriptDataCache: break;
 	case NVSEMessagingInterface::kMessage_MainGameLoop: break;
@@ -175,21 +176,21 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 
 	if (!nvse->isEditor) {
 		// Hook TESObjectWEAP::IsMeleeWeapon call in HUDMainMenu::UpdateWeaponStatus
-		WriteRelCall(0x007724CB, UInt32(&Hook_IsMeleeWeapon));
+		WriteRelCall(0x007724CB, reinterpret_cast<std::uint32_t>(&Hook_IsMeleeWeapon));
 
 		// Hook Actor::ObjectHit and Actor::CombatHit calls in Actor::MeleeAttack
-		ObjectHitDetour.WriteRelCall(0x008997FE, UInt32(&Hook_ObjectHit));
-		CombatHitDetour.WriteRelCall(0x0089996D, UInt32(&Hook_CombatHit));
+		ObjectHitDetour.WriteRelCall(0x008997FE, reinterpret_cast<std::uint32_t>(&Hook_ObjectHit));
+		CombatHitDetour.WriteRelCall(0x0089996D, reinterpret_cast<std::uint32_t>(&Hook_CombatHit));
 
 		// Hook TESObjectWEAP::GetCurrentAmmo inside PlayerCharacter::CheckUserInputAttacks
-		GetCurrentAmmoDetour.WriteRelCall(0x0094926A, UInt32(&Hook_GetCurrentAmmo));
-		GetCurrentAmmoDetour.WriteRelCall(0x009492B5, UInt32(&Hook_GetCurrentAmmo));
-		GetCurrentAmmoDetour.WriteRelCall(0x009492D7, UInt32(&Hook_GetCurrentAmmo));
-		GetCurrentAmmoDetour.WriteRelCall(0x00948E0E, UInt32(&Hook_GetCurrentAmmo));
-		GetCurrentAmmoDetour.WriteRelCall(0x00949E39, UInt32(&Hook_GetCurrentAmmo));
+		GetCurrentAmmoDetour.WriteRelCall(0x0094926A, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentAmmo));
+		GetCurrentAmmoDetour.WriteRelCall(0x009492B5, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentAmmo));
+		GetCurrentAmmoDetour.WriteRelCall(0x009492D7, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentAmmo));
+		GetCurrentAmmoDetour.WriteRelCall(0x00948E0E, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentAmmo));
+		GetCurrentAmmoDetour.WriteRelCall(0x00949E39, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentAmmo));
 
 		// Hook HitData::ReduceDamage in HitData::InitializeHitData
-		ReduceDamageDetour.WriteRelCall(0x009B5623, UInt32(&Hook_ReduceDamage));
+		ReduceDamageDetour.WriteRelCall(0x009B5623, reinterpret_cast<std::uint32_t>(&Hook_ReduceDamage));
 	}
 
 	return true;

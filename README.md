@@ -11,14 +11,14 @@
 - Functionality of this feature is driven by assigning ammo to a weapon form of type melee or unarmed.
 - Ammo effects and scripts are fully functional.
   
-  Note ammo scripts require assigning a projectile to the weapon form, as well as to enable compatibility with JIP bIgnoreDTDRFix feature.
+  Note ammo scripts require assigning a projectile to the weapon form. An assigned projectile is also necessary to ensure ammo effects apply when JIPs bIgnoreDTDRFix feature is enabled.
 - Non automatic weapons consume ammo on hit with objects or actors.
 - Automatic type weapons will consume ammo whenever firing.
 - Reloads work as expected, though custom animations are required for most weapons.
 - Empty case ejection should work for weapons with valid ShellCasingNode.
 
 #### Planned/Future
-- Fix for automatic melee weapons not stopping firing when ammo runs out.
+- Fix for automatic melee weapons not stopping firing animation when ammo runs out. This is a vanilla bug with all weapon types.
 
 ---
 
