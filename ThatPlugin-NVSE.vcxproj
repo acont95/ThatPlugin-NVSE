@@ -94,10 +94,32 @@
     </ManifestResourceCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ResourceCompile Include="ThatPlugin-NVSE.rc" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="src\dllmain.c" />
+    <ClCompile Include="external\NVSE\nvse\nvse\containers.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameAPI.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameBSExtraData.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameData.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameExtraData.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameForms.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameObjects.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameOSDepend.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameProcess.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameRTTI.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameScript.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameSettings.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameTasks.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameTiles.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\GameTypes.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\NiTypes.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\printf.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\SafeWrite.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\Utilities.cpp" />
+    <ClCompile Include="external\NVSE\nvse\nvse\utility.cpp" />
+    <ClCompile Include="src\dllmain.c">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+      </ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+      </ForcedIncludeFiles>
+    </ClCompile>
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
   <ItemGroup>
