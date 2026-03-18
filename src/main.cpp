@@ -1,6 +1,6 @@
 #include <cstdint>
-#include "PluginAPI.h"
-#include "SafeWrite.h"
+#include "nvse/PluginAPI.h"
+#include "nvse/SafeWrite.h"
 #include "Bethesda/Actor.hpp"
 #include "Bethesda/HitData.hpp"
 #include "Bethesda/TESAmmo.hpp"
@@ -29,6 +29,7 @@ CallDetour ReduceDamageDetour{};
 constexpr uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
 constexpr uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
 constexpr uint32_t Projectile_Constructor_Addr = 0x009BBEF0;
+constexpr uint32_t ExpelShellCasing_Addr = 0x00524DB0;
 
 static CommonLib::NiPoint3 ZERO = { 0.0f, 0.0f, 0.0f };
 
@@ -48,8 +49,9 @@ CommonLib::Tile* __fastcall Hook_ObjectHit(CommonLib::Actor* actor, void* edx, b
 	// Need to stop animation for auto weapons
 	bool isAutomatic = (weapon->data.cFlags >> 1) & 1;
 
-	if (weapon && (result || isAutomatic)) {
+	if (weapon && weapon->data.eType <= 2 && weapon->pFormAmmo && (result || isAutomatic)) {
 		ThisStdCall<void>(Actor_UseAmmo_Addr, actor, 1);
+		ThisStdCall<void>(ExpelShellCasing_Addr, weapon, actor);
 	}
 
 	return result;
@@ -63,17 +65,19 @@ void __fastcall Hook_CombatHit(
 	CommonLib::Projectile* apProjectile,
 	char cMeleeEffect)
 {
-	CommonLib::Actor* actorVar = actor;
-
 	ThisStdCall<void>(
 		CombatHitDetour.GetOverwrittenAddr(), 
-		actorVar,
+		actor,
 		apTarget, 
 		abPowerAttack, 
 		apProjectile,
 		cMeleeEffect);
 
-	ThisStdCall<void>(Actor_UseAmmo_Addr, actorVar, 1);
+	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, actor);
+	if (weapon && weapon->data.eType <= 2 && weapon->pFormAmmo) {
+		ThisStdCall<void>(Actor_UseAmmo_Addr, actor, 1);
+		ThisStdCall<void>(ExpelShellCasing_Addr, weapon, actor);
+	}
 }
 
 CommonLib::TESAmmo* __fastcall Hook_GetCurrentAmmo(CommonLib::TESObjectWEAP* weapon, void* edx, CommonLib::Actor* apWeaponHolder)
