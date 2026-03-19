@@ -17,7 +17,7 @@ PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 NVSEMessagingInterface* g_messagingInterface{};
 NVSEInterface* g_nvseInterface{};
 
-constexpr char g_PluginVersion[] = "0.1.0";
+constexpr char g_PluginVersion[] = "0.1.1";
 
 CallDetour ObjectHitDetour{};
 CallDetour CombatHitDetour{};
