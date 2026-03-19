@@ -27,6 +27,7 @@ CallDetour InitializeHitDataDetour{};
 CallDetour ReduceDamageDetour{};
 
 constexpr uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
+constexpr uint32_t Actor_ShouldUseAmmo_Addr = 0x008A8DD0;
 constexpr uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
 constexpr uint32_t Projectile_Constructor_Addr = 0x009BBEF0;
 
@@ -48,8 +49,9 @@ CommonLib::Tile* __fastcall Hook_ObjectHit(CommonLib::Actor* actor, void* edx, b
 {	
 	CommonLib::Tile* result = ThisStdCall<CommonLib::Tile*>(ObjectHitDetour.GetOverwrittenAddr(), actor, abPowerAttack);
 	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, actor);
+	bool shouldUseAmmo = ThisStdCall<bool>(Actor_ShouldUseAmmo_Addr, actor, weapon);
 
-	if (weapon && isBallisticMelee(weapon)) {
+	if (shouldUseAmmo && weapon && isBallisticMelee(weapon)) {
 		bool isAutomatic = (weapon->data.cFlags >> 1) & 1;
 		if (result || isAutomatic) {
 			ThisStdCall<void>(Actor_UseAmmo_Addr, actor, 1);
@@ -76,7 +78,9 @@ void __fastcall Hook_CombatHit(
 		cMeleeEffect);
 
 	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, actor);
-	if (weapon && isBallisticMelee(weapon)) {
+	bool shouldUseAmmo = ThisStdCall<bool>(Actor_ShouldUseAmmo_Addr, actor, weapon);
+
+	if (shouldUseAmmo && weapon && isBallisticMelee(weapon)) {
 		ThisStdCall<void>(Actor_UseAmmo_Addr, actor, 1);
 	}
 }
