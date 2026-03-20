@@ -1,4 +1,6 @@
 #include <cstdint>
+#include <cstdarg>
+#include <cstdio>
 #include "nvse/PluginAPI.h"
 #include "nvse/SafeWrite.h"
 #include "Bethesda/Actor.hpp"
@@ -7,6 +9,9 @@
 #include "Bethesda/TESObjectWEAP.hpp"
 #include "Bethesda/Projectile.hpp"
 #include "Bethesda/Tile.hpp"
+#include "Bethesda/PlayerCharacter.hpp"
+#include "Bethesda/BaseProcess.hpp"
+#include "Bethesda/InventoryChanges.hpp"
 #include "Gamebryo/NiPoint3.hpp"
 
 
@@ -26,10 +31,20 @@ CallDetour HitMeDetour{};
 CallDetour InitializeHitDataDetour{};
 CallDetour ReduceDamageDetour{};
 
+CallDetour GetFormClipRoundsDetour{};
+
 constexpr uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
 constexpr uint32_t Actor_ShouldUseAmmo_Addr = 0x008A8DD0;
 constexpr uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
 constexpr uint32_t Projectile_Constructor_Addr = 0x009BBEF0;
+constexpr uint32_t InventoryChanges_GetInventoryChanges_Addr = 0x004BF220;
+constexpr uint32_t InventoryChanges_GetObjectCount_Addr = 0x004C8F30;
+constexpr uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
+
+CommonLib::PlayerCharacter* PlayerCharacterGetSingleton()
+{
+	return *(CommonLib::PlayerCharacter**)0x011DEA3C;
+}
 
 static CommonLib::NiPoint3 ZERO = { 0.0f, 0.0f, 0.0f };
 
@@ -116,6 +131,35 @@ void __fastcall Hook_ReduceDamage(CommonLib::HitData* hitData, void* edx, bool a
 	return ThisStdCall<void>(ReduceDamageDetour.GetOverwrittenAddr(), hitData, abIgnoreBlocking);
 }
 
+int Hook_UIWweaponPrint(char* Buffer, size_t BufferCount, char* Format, ...)
+{
+	CommonLib::PlayerCharacter* pPlayer = PlayerCharacterGetSingleton();
+	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, pPlayer);
+	va_list args;
+	va_start(args, Format);
+
+	if (weapon && !(weapon->cClipRounds)) {
+		//va_arg(args, int);
+		return vsprintf_s(Buffer, BufferCount, "%i", args);
+	}
+
+	return vsprintf_s(Buffer, BufferCount, Format, args);
+}
+
+int __fastcall Hook_GetFormClipRounds(CommonLib::TESObjectWEAP* weapon, void* edx, bool bModValue)
+{
+	if (weapon && !(weapon->cClipRounds)) {
+		CommonLib::PlayerCharacter* pPlayer = PlayerCharacterGetSingleton();
+		CommonLib::TESAmmo* ammo = ThisStdCall<CommonLib::TESAmmo*>(TESObjectWEAP_GetCurrentAmmo_Addr, weapon, pPlayer);
+		CommonLib::InventoryChanges* inventoryChanges = CdeclCall<CommonLib::InventoryChanges*>(InventoryChanges_GetInventoryChanges_Addr, pPlayer);
+		int objectCount = ThisStdCall<int>(InventoryChanges_GetObjectCount_Addr, inventoryChanges, ammo);
+
+		return objectCount;
+	}  
+
+	return ThisStdCall<int>(GetFormClipRoundsDetour.GetOverwrittenAddr(), weapon, bModValue);
+}
+
 // This is a message handler for nvse events
 // With this, plugins can listen to messages such as whenever the game loads
 void MessageHandler(NVSEMessagingInterface::Message* msg)
@@ -195,6 +239,42 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 
 		// Hook HitData::ReduceDamage in HitData::InitializeHitData
 		ReduceDamageDetour.WriteRelCall(0x009B5623, reinterpret_cast<std::uint32_t>(&Hook_ReduceDamage));
+
+		// Hook BSsprintf call in HUDMainMenu::UpdateWeaponStatus
+		WriteRelCall(0x0077253D, reinterpret_cast<std::uint32_t>(&Hook_UIWweaponPrint));
+		// Hook BSsprintf call in VATSMenu::UpdateAmmo
+		WriteRelCall(0x007F3019, reinterpret_cast<std::uint32_t>(&Hook_UIWweaponPrint));
+
+		GetFormClipRoundsDetour.WriteRelCall(0x004FE113, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x00645679, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x00645FC7, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x0070869B, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x00772421, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x007EDB41, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x007EE591, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x007F2A65, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x007F2A9B, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x007F2AB6, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x007F2B8A, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x007F2BDE, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x007F2CAD, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x007F2D10, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x0088CE83, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x00892CE9, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x008A85D5, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x008A86D3, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x008A86E5, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x008A8955, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x008BAAD4, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x008F7F3E, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x00943D65, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x00948C20, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x0095D656, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x0095D690, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x0095DA70, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x0095DABE, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+		GetFormClipRoundsDetour.WriteRelCall(0x0095DBDA, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+	
 	}
 
 	return true;
