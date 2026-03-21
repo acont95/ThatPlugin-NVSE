@@ -61,7 +61,7 @@
       <DebugInformationFormat>EditAndContinue</DebugInformationFormat>
       <Optimization>Disabled</Optimization>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(SolutionDir)\..;$(SolutionDir)external\CommonLibFNV\include;$(SolutionDir)external\NVSE;$(SolutionDir)external\NVSE\nvse;$(SolutionDir)external\NVSE\common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\..;$(SolutionDir)external\CommonLibFNV\include;$(SolutionDir)external\NVSE;$(SolutionDir)external\NVSE\nvse;$(SolutionDir)external\NVSE\common;$(SolutionDir)external\simpleini;$(SolutionDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ForcedIncludeFiles>nvse/prefix.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
     </ClCompile>
     <Link>
@@ -76,7 +76,7 @@
       <WarningLevel>Level3</WarningLevel>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <AdditionalIncludeDirectories>$(SolutionDir)\..;$(SolutionDir)external\CommonLibFNV\include;$(SolutionDir)external\NVSE;$(SolutionDir)external\NVSE\nvse;$(SolutionDir)external\NVSE\common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\..;$(SolutionDir)external\CommonLibFNV\include;$(SolutionDir)external\NVSE;$(SolutionDir)external\NVSE\nvse;$(SolutionDir)external\NVSE\common;$(SolutionDir)external\simpleini;$(SolutionDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ForcedIncludeFiles>nvse/prefix.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
     </ClCompile>
     <Link>
@@ -120,6 +120,9 @@
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
       </ForcedIncludeFiles>
     </ClCompile>
+    <ClCompile Include="src\Globals.cpp" />
+    <ClCompile Include="src\hooks\BallisticMelee.cpp" />
+    <ClCompile Include="src\hooks\EndlessMag.cpp" />
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -127,6 +130,11 @@
       <Project>{20c6411c-596f-4b85-be4e-8bc91f59d8a6}</Project>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\Globals.hpp" />
+    <ClInclude Include="include\BallisticMelee.hpp" />
+    <ClInclude Include="include\EndlessMag.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
