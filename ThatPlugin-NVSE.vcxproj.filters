@@ -84,10 +84,13 @@
     <ClCompile Include="src\hooks\BallisticMelee.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\hooks\EndlessMag.cpp">
+    <ClCompile Include="src\hooks\BetterCounter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\Globals.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\ConfigManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -95,10 +98,13 @@
     <ClInclude Include="include\BallisticMelee.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\EndlessMag.hpp">
+    <ClInclude Include="include\BetterCounter.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\Globals.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\ConfigManager.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

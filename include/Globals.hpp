@@ -9,3 +9,4 @@ namespace CommonLib
 CommonLib::PlayerCharacter* PlayerCharacterGetSingleton();
 
 extern CommonLib::NiPoint3 ZERO;
+

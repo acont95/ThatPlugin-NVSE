@@ -3,7 +3,7 @@
 #include <cstdio>
 #include "nvse/PluginAPI.h"
 #include "BallisticMelee.hpp"
-#include "EndlessMag.hpp"
+#include "BetterCounter.hpp"
 
 
 #define EXTERN_DLL_EXPORT extern "C" __declspec(dllexport)
@@ -79,7 +79,7 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 
 	if (!nvse->isEditor) {
 		installBallisticMeleeHooks();
-		installEndlessMagHooks();
+		installBetterCounterHooks();
 	}
 
 	return true;
