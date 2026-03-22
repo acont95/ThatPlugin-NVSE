@@ -12,16 +12,19 @@
 #include "Bethesda/PlayerCharacter.hpp"
 #include "Bethesda/BaseProcess.hpp"
 #include "Bethesda/InventoryChanges.hpp"
+#include "Bethesda/Tile.hpp"
 #include "Gamebryo/NiPoint3.hpp"
 #include "Globals.hpp"
 
 CallDetour GetFormClipRoundsDetour{};
+CallDetour PopulateItemStatsDisplayDetour{};
 
 constexpr uint32_t InventoryChanges_GetInventoryChanges_Addr = 0x004BF220;
 constexpr uint32_t InventoryChanges_GetObjectCount_Addr = 0x004C8F30;
 constexpr uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
 constexpr uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
 constexpr uint32_t TESObjectWEAP_GetModEffectValue_Addr = 0x004BCF60;
+constexpr uint32_t InventoryChanges_GetBestAmmoForWeapon_Addr = 0x004C7300;
 
 
 
@@ -42,10 +45,11 @@ int Hook_UIWweaponPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 
 int getWeaponAmmoCount(CommonLib::TESObjectWEAP* weapon) {
 	CommonLib::PlayerCharacter* pPlayer = PlayerCharacterGetSingleton();
-	CommonLib::TESAmmo* ammo = ThisStdCall<CommonLib::TESAmmo*>(TESObjectWEAP_GetCurrentAmmo_Addr, weapon, pPlayer);
 	CommonLib::InventoryChanges* inventoryChanges = CdeclCall<CommonLib::InventoryChanges*>(InventoryChanges_GetInventoryChanges_Addr, pPlayer);
-	int objectCount = ThisStdCall<int>(InventoryChanges_GetObjectCount_Addr, inventoryChanges, ammo);
+	bool bNeedsAmmo = true;
+	CommonLib::TESAmmo* ammo = ThisStdCall<CommonLib::TESAmmo*>(InventoryChanges_GetBestAmmoForWeapon_Addr, inventoryChanges, weapon, &bNeedsAmmo);
 
+	int objectCount = ThisStdCall<int>(InventoryChanges_GetObjectCount_Addr, inventoryChanges, ammo);
 	return objectCount;
 }
 
@@ -82,38 +86,9 @@ void installEndlessMagHooks() {
 	// Hook BSsprintf call in VATSMenu::UpdateAmmo
 	WriteRelCall(0x007F3019, reinterpret_cast<std::uint32_t>(&Hook_UIWweaponPrint));
 	// Jump TESObjectWEAP::GetFormClipRounds function
-	//WriteRelJump(0x004FE160, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	// Jump BGSClipRoundsForm::GetClipRounds function
-	WriteRelJump(0x00401170, reinterpret_cast<std::uint32_t>(&Hook_GetClipRounds));
-	PatchMemoryNop(0x00401175, 2);
+	WriteRelJump(0x004FE160, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
 
-	//GetFormClipRoundsDetour.WriteRelCall(0x004FE113, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x00645679, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x00645FC7, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x0070869B, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x00772421, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x007EDB41, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x007EE591, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x007F2A65, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x007F2A9B, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x007F2AB6, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x007F2B8A, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x007F2BDE, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x007F2CAD, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x007F2D10, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x0088CE83, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x00892CE9, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x008A85D5, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x008A86D3, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x008A86E5, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x008A8955, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x008BAAD4, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x008F7F3E, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x00943D65, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x00948C20, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x0095D656, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x0095D690, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x0095DA70, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x0095DABE, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-	//GetFormClipRoundsDetour.WriteRelCall(0x0095DBDA, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
+	// Jump BGSClipRoundsForm::GetClipRounds function
+	//WriteRelJump(0x00401170, reinterpret_cast<std::uint32_t>(&Hook_GetClipRounds));
+	//PatchMemoryNop(0x00401175, 2);
 }
