@@ -29,7 +29,8 @@ CallDetour ReduceDamageDetour{};
 constexpr uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
 constexpr uint32_t Actor_ShouldUseAmmo_Addr = 0x008A8DD0;
 constexpr uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
-constexpr uint32_t Projectile_Constructor_Addr = 0x009BBEF0;
+constexpr uint32_t Projectile_Constructor_Addr = 0x009B7AF0;
+constexpr uint32_t Projectile_Initialize_Addr = 0x009B7CC0;
 
 static CommonLib::NiPoint3 ZERO = { 0.0f, 0.0f, 0.0f };
 
@@ -98,7 +99,7 @@ void __fastcall Hook_ReduceDamage(CommonLib::HitData* hitData, void* edx, bool a
 	CommonLib::TESObjectWEAP* apFromWeapon = hitData->pWeapon;
 	if (apFromWeapon && isBallisticMelee(apFromWeapon)) {
 		CommonLib::BGSProjectile* apProjectileBase = apFromWeapon->data.pProjectile;
-		CommonLib::TESObjectREFR* apShooter = hitData->pAggressor;
+		CommonLib::TESObjectREFR* apShooter = static_cast<CommonLib::TESObjectREFR*>(hitData->pAggressor);
 
 		if (apProjectileBase && apShooter) {
 			CommonLib::Projectile* projectile = New<CommonLib::Projectile, Projectile_Constructor_Addr>(
@@ -109,10 +110,11 @@ void __fastcall Hook_ReduceDamage(CommonLib::HitData* hitData, void* edx, bool a
 				0.0,
 				0.0
 			);
+			ThisStdCall<void>(Projectile_Initialize_Addr, projectile);
 			hitData->pSourceRef = projectile;
 		}
 	}
-
+	
 	return ThisStdCall<void>(ReduceDamageDetour.GetOverwrittenAddr(), hitData, abIgnoreBlocking);
 }
 
