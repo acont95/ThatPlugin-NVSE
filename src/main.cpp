@@ -17,7 +17,7 @@ PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 NVSEMessagingInterface* g_messagingInterface{};
 NVSEInterface* g_nvseInterface{};
 
-constexpr char g_PluginVersion[] = "0.1.1";
+constexpr char g_PluginVersion[] = "0.1.3";
 
 CallDetour ObjectHitDetour{};
 CallDetour CombatHitDetour{};
@@ -29,8 +29,7 @@ CallDetour ReduceDamageDetour{};
 constexpr uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
 constexpr uint32_t Actor_ShouldUseAmmo_Addr = 0x008A8DD0;
 constexpr uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
-constexpr uint32_t Projectile_Constructor_Addr = 0x009B7AF0;
-constexpr uint32_t Projectile_Initialize_Addr = 0x009B7CC0;
+constexpr uint32_t Projectile_Constructor_Addr = 0x009BBEF0;
 
 static CommonLib::NiPoint3 ZERO = { 0.0f, 0.0f, 0.0f };
 
@@ -110,12 +109,12 @@ void __fastcall Hook_ReduceDamage(CommonLib::HitData* hitData, void* edx, bool a
 				0.0,
 				0.0
 			);
-			ThisStdCall<void>(Projectile_Initialize_Addr, projectile);
+			projectile->cFormType = 0x33;
 			hitData->pSourceRef = projectile;
 		}
 	}
 	
-	return ThisStdCall<void>(ReduceDamageDetour.GetOverwrittenAddr(), hitData, abIgnoreBlocking);
+	ThisStdCall<void>(ReduceDamageDetour.GetOverwrittenAddr(), hitData, abIgnoreBlocking);
 }
 
 // This is a message handler for nvse events
