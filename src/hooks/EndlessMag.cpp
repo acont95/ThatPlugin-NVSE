@@ -3,6 +3,7 @@
 #include <cstdio>
 #include "nvse/PluginAPI.h"
 #include "nvse/SafeWrite.h"
+#include "nvse/GameRTTI.h"
 #include "Bethesda/Actor.hpp"
 #include "Bethesda/HitData.hpp"
 #include "Bethesda/TESAmmo.hpp"
@@ -12,20 +13,18 @@
 #include "Bethesda/PlayerCharacter.hpp"
 #include "Bethesda/BaseProcess.hpp"
 #include "Bethesda/InventoryChanges.hpp"
-#include "Bethesda/Tile.hpp"
+#include "Bethesda/ItemChange.hpp"
 #include "Gamebryo/NiPoint3.hpp"
 #include "Globals.hpp"
 
 CallDetour GetFormClipRoundsDetour{};
-CallDetour PopulateItemStatsDisplayDetour{};
 
 constexpr uint32_t InventoryChanges_GetInventoryChanges_Addr = 0x004BF220;
 constexpr uint32_t InventoryChanges_GetObjectCount_Addr = 0x004C8F30;
 constexpr uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
 constexpr uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
 constexpr uint32_t TESObjectWEAP_GetModEffectValue_Addr = 0x004BCF60;
-constexpr uint32_t InventoryChanges_GetBestAmmoForWeapon_Addr = 0x004C7300;
-
+constexpr uint32_t Process_GetCurrentAmmo_Addr = 0x005F7590;
 
 
 int Hook_UIWweaponPrint(char* Buffer, size_t BufferCount, char* Format, ...)
@@ -44,20 +43,32 @@ int Hook_UIWweaponPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 }
 
 int getWeaponAmmoCount(CommonLib::TESObjectWEAP* weapon) {
+	Console_Print("WeaponF: %s", weapon->cFullName);
 	CommonLib::PlayerCharacter* pPlayer = PlayerCharacterGetSingleton();
-	CommonLib::InventoryChanges* inventoryChanges = CdeclCall<CommonLib::InventoryChanges*>(InventoryChanges_GetInventoryChanges_Addr, pPlayer);
-	bool bNeedsAmmo = true;
-	CommonLib::TESAmmo* ammo = ThisStdCall<CommonLib::TESAmmo*>(InventoryChanges_GetBestAmmoForWeapon_Addr, inventoryChanges, weapon, &bNeedsAmmo);
+	CommonLib::ItemChange* ammoItemChange = ThisStdCall<CommonLib::ItemChange*>(Process_GetCurrentAmmo_Addr, pPlayer->pCurrentProcess);
+	if (ammoItemChange) {
+		CommonLib::TESAmmo* ammo = reinterpret_cast<CommonLib::TESAmmo*>(DYNAMIC_CAST(ammoItemChange->pContainerObj, TESBoundObject, TESAmmo));
+		if (ammo) {
+			Console_Print("Ammo: %s", ammo->cFullName);
+			CommonLib::InventoryChanges* inventoryChanges = CdeclCall<CommonLib::InventoryChanges*>(InventoryChanges_GetInventoryChanges_Addr, pPlayer);
+			int objectCount = ThisStdCall<int>(InventoryChanges_GetObjectCount_Addr, inventoryChanges, ammo);
+			Console_Print("Ammo Count: %i", objectCount);
 
-	int objectCount = ThisStdCall<int>(InventoryChanges_GetObjectCount_Addr, inventoryChanges, ammo);
-	return objectCount;
+			return objectCount;
+		}
+	}
+
+	return 0;
 }
 
 int __fastcall Hook_GetFormClipRounds(CommonLib::TESObjectWEAP* weapon, void* edx, bool bModValue)
 {
-	if (!weapon->cClipRounds) {
-		return getWeaponAmmoCount(weapon);
-	}
+	//if (!weapon->cClipRounds) {
+	//	Console_Print("Endless Clip");
+	//	Console_Print("Weapon: %s", weapon->cFullName);
+	//	return getWeaponAmmoCount(weapon);
+	//}
+	getWeaponAmmoCount(weapon);
 
 	if (bModValue) {
 		float modEffectValue = ThisStdCall<float>(
@@ -87,7 +98,6 @@ void installEndlessMagHooks() {
 	WriteRelCall(0x007F3019, reinterpret_cast<std::uint32_t>(&Hook_UIWweaponPrint));
 	// Jump TESObjectWEAP::GetFormClipRounds function
 	WriteRelJump(0x004FE160, reinterpret_cast<std::uint32_t>(&Hook_GetFormClipRounds));
-
 	// Jump BGSClipRoundsForm::GetClipRounds function
 	//WriteRelJump(0x00401170, reinterpret_cast<std::uint32_t>(&Hook_GetClipRounds));
 	//PatchMemoryNop(0x00401175, 2);
