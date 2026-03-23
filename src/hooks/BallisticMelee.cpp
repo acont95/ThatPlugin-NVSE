@@ -101,20 +101,21 @@ void __fastcall Hook_ReduceDamage(CommonLib::HitData* hitData, void* edx, bool a
 				apProjectileBase,
 				apShooter,
 				apFromWeapon,
-				&ZERO,
+				&CommonLib::ZERO,
 				0.0,
 				0.0
 			);
+			projectile->cFormType = 0x33;
 			hitData->pSourceRef = projectile;
 		}
 	}
 
-	return ThisStdCall<void>(ReduceDamageDetour.GetOverwrittenAddr(), hitData, abIgnoreBlocking);
+	ThisStdCall<void>(ReduceDamageDetour.GetOverwrittenAddr(), hitData, abIgnoreBlocking);
 }
 
 
 void installBallisticMeleeHooks() {
-	if (ConfigManager::getInstance().getKey<bool>(CONFIG_SECTION, "bEnabled")) {
+	if (Globals::g_configManager.getKey<bool>(CONFIG_SECTION, "bEnabled")) {
 		// Hook TESObjectWEAP::IsMeleeWeapon call in HUDMainMenu::UpdateWeaponStatus
 		WriteRelCall(0x007724CB, reinterpret_cast<std::uint32_t>(&Hook_IsMeleeWeapon));
 

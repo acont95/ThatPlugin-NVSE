@@ -20,6 +20,8 @@
 #include "Globals.hpp"
 #include "ConfigManager.hpp"
 
+extern 
+
 constexpr const char* CONFIG_SECTION = "BetterCounter";
 
 CallDetour GetFormClipRoundsDetour{};
@@ -34,9 +36,9 @@ constexpr uint32_t Process_GetCurrentAmmo_Addr = 0x005F7590;
 
 int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 {
-	ConfigManager& cm = ConfigManager::getInstance();
+	ConfigManager cm = Globals::g_configManager;
 
-	CommonLib::PlayerCharacter* pPlayer = PlayerCharacterGetSingleton();
+	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacterGetSingleton();
 	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, pPlayer);
 
 	va_list args;
@@ -45,7 +47,13 @@ int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 	int clipCount = va_arg(args, int);
 	int reserveCount = va_arg(args, int);
 
+	Console_Print("%i", BufferCount);
+
 	const char* seperator = cm.getKey<const char*>(CONFIG_SECTION, "cSeperator", "/");
+
+	if (cm.getKey<bool>(CONFIG_SECTION, "bHideCounter")) {
+		return snprintf(Buffer, BufferCount, "");
+	}
 
 	if (cm.getKey<bool>(CONFIG_SECTION, "bHideReserve")) {
 		return snprintf(Buffer, BufferCount, "%i", clipCount);
@@ -55,12 +63,12 @@ int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 		reserveCount += clipCount;
 	}
 
-	return snprintf(Buffer, BufferCount, "%i%s%i", clipCount, seperator, reserveCount + clipCount);
+	return snprintf(Buffer, BufferCount, "%i%s%i", clipCount, seperator, reserveCount);
 }
 
 
 void installBetterCounterHooks() {
-	if (ConfigManager::getInstance().getKey<bool>(CONFIG_SECTION, "bEnabled")) {
+	if (Globals::g_configManager.getKey<bool>(CONFIG_SECTION, "bEnabled")) {
 		// Hook BSsprintf call in HUDMainMenu::UpdateWeaponStatus
 		WriteRelCall(0x0077253D, reinterpret_cast<std::uint32_t>(&Hook_UIAmmoPrint));
 		// Hook BSsprintf call in VATSMenu::UpdateAmmo

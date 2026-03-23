@@ -4,6 +4,8 @@
 #include "nvse/PluginAPI.h"
 #include "BallisticMelee.hpp"
 #include "BetterCounter.hpp"
+#include "SimpleIni.h"
+#include "Globals.hpp"
 
 
 #define EXTERN_DLL_EXPORT extern "C" __declspec(dllexport)
@@ -14,6 +16,9 @@ NVSEMessagingInterface* g_messagingInterface{};
 NVSEInterface* g_nvseInterface{};
 
 constexpr char g_PluginVersion[] = "0.1.1";
+constexpr char g_configPath[] = "Data/NVSE/Plugins/ThatPlugin.ini";
+CSimpleIniA g_Ini;
+bool configMissing;
 
 // This is a message handler for nvse events
 // With this, plugins can listen to messages such as whenever the game loads
@@ -40,6 +45,9 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 	case NVSEMessagingInterface::kMessage_RenameNewGameName: break;
 	case NVSEMessagingInterface::kMessage_DeferredInit: 
 		Console_Print("That Plugin NVSE version: %s", g_PluginVersion);
+		if (configMissing) {
+			Console_Print("That Plugin NVSE config file not found!");
+		}
 		break;
 	case NVSEMessagingInterface::kMessage_ClearScriptDataCache: break;
 	case NVSEMessagingInterface::kMessage_MainGameLoop: break;
@@ -76,6 +84,15 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 	// register to receive messages from NVSE
 	g_messagingInterface = static_cast<NVSEMessagingInterface*>(nvse->QueryInterface(kInterface_Messaging));
 	g_messagingInterface->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
+
+	g_Ini.SetUnicode();
+	SI_Error rc = g_Ini.LoadFile(g_configPath);
+	if (rc < 0) {
+		configMissing = true;
+		return true;
+	};
+
+	Globals::g_configManager.setConfigData(&g_Ini);
 
 	if (!nvse->isEditor) {
 		installBallisticMeleeHooks();
