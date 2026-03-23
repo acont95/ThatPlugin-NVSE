@@ -4,6 +4,7 @@
 #include "nvse/PluginAPI.h"
 #include "BallisticMelee.hpp"
 #include "BetterCounter.hpp"
+#include "BottomlessClip.hpp"
 #include "SimpleIni.h"
 #include "Globals.hpp"
 
@@ -96,6 +97,7 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 	if (!nvse->isEditor) {
 		installBallisticMeleeHooks();
 		installBetterCounterHooks();
+		installBottomlessClipHooks();
 	}
 
 	return true;

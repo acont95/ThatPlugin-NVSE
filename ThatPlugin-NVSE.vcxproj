@@ -123,6 +123,7 @@
     <ClCompile Include="src\Globals.cpp" />
     <ClCompile Include="src\hooks\BallisticMelee.cpp" />
     <ClCompile Include="src\hooks\BetterCounter.cpp" />
+    <ClCompile Include="src\hooks\BottomlessClips.cpp" />
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -132,6 +133,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\BottomlessClip.hpp" />
     <ClInclude Include="include\Globals.hpp" />
     <ClInclude Include="include\BallisticMelee.hpp" />
     <ClInclude Include="include\BetterCounter.hpp" />

@@ -44,8 +44,10 @@ int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 	bool replaceTotalWithMagCount = Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bReplaceTotalWithMagCount");
 
 	const char* baseDisplay = "%i%s%i";
+	const char* baseDisplayS = "%i%s%s";
 	const char* noReserveDisplay = "%i";
 	const char* clipCountDisplay = "%i%s%i%s%i";
+	const char* clipCountDisplayS = "%i%s%s%s%i";
 
 	const char* reserveSeperator = Globals::g_Ini.GetValue(CONFIG_SECTION, "sReserveSeperator", "/");
 	const char* clipSeperator = Globals::g_Ini.GetValue(CONFIG_SECTION, "sClipSeperator", "|");
@@ -76,10 +78,16 @@ int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 	}
 
 	if (hideReserve && showClipSize) {
+		if (clipSize == (std::numeric_limits<int>::max)()) {
+			return snprintf(Buffer, BufferCount, baseDisplayS, clipCount, clipSeperator, "INF");
+		}
 		return snprintf(Buffer, BufferCount, baseDisplay, clipCount, clipSeperator, clipSize);
 	}
 
 	if (!hideReserve && showClipSize) {
+		if (clipSize == (std::numeric_limits<int>::max)()) {
+			return snprintf(Buffer, BufferCount, clipCountDisplayS, clipCount, clipSeperator, "INF", reserveSeperator, reserveCount);
+		}
 		return snprintf(Buffer, BufferCount, clipCountDisplay, clipCount, clipSeperator, clipSize, reserveSeperator, reserveCount);
 	}
 
