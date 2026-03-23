@@ -18,57 +18,77 @@
 #include "Bethesda/ItemChange.hpp"
 #include "Gamebryo/NiPoint3.hpp"
 #include "Globals.hpp"
-#include "ConfigManager.hpp"
 
-extern 
-
-constexpr const char* CONFIG_SECTION = "BetterCounter";
+constexpr char CONFIG_SECTION[] = "BetterCounter";
 
 CallDetour GetFormClipRoundsDetour{};
 
-constexpr uint32_t InventoryChanges_GetInventoryChanges_Addr = 0x004BF220;
-constexpr uint32_t InventoryChanges_GetObjectCount_Addr = 0x004C8F30;
-constexpr uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
 constexpr uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
-constexpr uint32_t TESObjectWEAP_GetModEffectValue_Addr = 0x004BCF60;
-constexpr uint32_t Process_GetCurrentAmmo_Addr = 0x005F7590;
+constexpr uint32_t TESObjectWEAP_GetFormClipRounds_Addr = 0x004FE160;
+constexpr uint32_t Process_GetCurrentWeapon_Addr = 0x008D81E0;
+constexpr uint32_t ItemChange_HasModEffectActive_Addr = 0x004BDA70;
 
 
 int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 {
-	ConfigManager cm = Globals::g_configManager;
-
-	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacterGetSingleton();
-	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, pPlayer);
-
 	va_list args;
 	va_start(args, Format);
 
 	int clipCount = va_arg(args, int);
 	int reserveCount = va_arg(args, int);
 
-	Console_Print("%i", BufferCount);
+	bool hideCounter = Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bHideCounter");
+	bool addClipToTotal = Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bAddClipToTotal");
+	bool hideReserve = Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bHideReserve");
+	bool showClipSize = Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bShowClipSize");
+	bool replaceTotalWithMagCount = Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bReplaceTotalWithMagCount");
 
-	const char* seperator = cm.getKey<const char*>(CONFIG_SECTION, "cSeperator", "/");
+	const char* baseDisplay = "%i%s%i";
+	const char* noReserveDisplay = "%i";
+	const char* clipCountDisplay = "%i%s%i%s%i";
 
-	if (cm.getKey<bool>(CONFIG_SECTION, "bHideCounter")) {
+	const char* reserverSeperator = Globals::g_Ini.GetValue(CONFIG_SECTION, "cReserverSeperator", "/");
+	const char* clipSeperator = Globals::g_Ini.GetValue(CONFIG_SECTION, "cClipSeperator", "|");
+
+	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacterGetSingleton();
+	CommonLib::ItemChange* weaponItemChange = ThisStdCall<CommonLib::ItemChange*>(Process_GetCurrentWeapon_Addr, pPlayer->pCurrentProcess);
+	bool hasModEffectActive = ThisStdCall<bool>(
+		ItemChange_HasModEffectActive_Addr,
+		weaponItemChange,
+		CommonLib::TESObjectWEAP::WEAPON_MOD_EFFECT::WEAPON_MOD_INCREASE_CLIP_SIZE
+	);
+	int clipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, weaponItemChange->pContainerObj, hasModEffectActive);
+
+	if (hideCounter) {
 		return snprintf(Buffer, BufferCount, "");
 	}
 
-	if (cm.getKey<bool>(CONFIG_SECTION, "bHideReserve")) {
-		return snprintf(Buffer, BufferCount, "%i", clipCount);
-	}
-
-	if (cm.getKey<bool>(CONFIG_SECTION, "bCurrentTotalStyle")) {
+	if (addClipToTotal) {
 		reserveCount += clipCount;
 	}
 
-	return snprintf(Buffer, BufferCount, "%i%s%i", clipCount, seperator, reserveCount);
+	if (replaceTotalWithMagCount && clipSize) {
+		reserveCount /= clipSize;
+	}
+
+	if (hideReserve && !showClipSize) {
+		return snprintf(Buffer, BufferCount, noReserveDisplay, clipCount);
+	}
+
+	if (hideReserve && showClipSize) {
+		return snprintf(Buffer, BufferCount, baseDisplay, clipCount, clipSeperator, clipSize);
+	}
+
+	if (!hideReserve && showClipSize) {
+		return snprintf(Buffer, BufferCount, clipCountDisplay, clipCount, clipSeperator, clipSize, reserverSeperator, reserveCount);
+	}
+
+	return snprintf(Buffer, BufferCount, baseDisplay, clipCount, reserverSeperator, reserveCount);
 }
 
 
 void installBetterCounterHooks() {
-	if (Globals::g_configManager.getKey<bool>(CONFIG_SECTION, "bEnabled")) {
+	if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bEnabled")) {
 		// Hook BSsprintf call in HUDMainMenu::UpdateWeaponStatus
 		WriteRelCall(0x0077253D, reinterpret_cast<std::uint32_t>(&Hook_UIAmmoPrint));
 		// Hook BSsprintf call in VATSMenu::UpdateAmmo

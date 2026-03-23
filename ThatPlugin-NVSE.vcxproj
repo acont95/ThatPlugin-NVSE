@@ -114,7 +114,6 @@
     <ClCompile Include="external\NVSE\nvse\nvse\SafeWrite.cpp" />
     <ClCompile Include="external\NVSE\nvse\nvse\Utilities.cpp" />
     <ClCompile Include="external\NVSE\nvse\nvse\utility.cpp" />
-    <ClCompile Include="src\ConfigManager.cpp" />
     <ClCompile Include="src\dllmain.c">
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
       </ForcedIncludeFiles>
@@ -133,7 +132,6 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="include\ConfigManager.hpp" />
     <ClInclude Include="include\Globals.hpp" />
     <ClInclude Include="include\BallisticMelee.hpp" />
     <ClInclude Include="include\BetterCounter.hpp" />

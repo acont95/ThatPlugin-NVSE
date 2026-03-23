@@ -12,5 +12,5 @@ namespace CommonLib {
 }
 
 namespace Globals {
-	ConfigManager g_configManager{};
+	CSimpleIniA g_Ini;
 }

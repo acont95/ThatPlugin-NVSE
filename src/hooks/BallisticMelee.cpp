@@ -15,7 +15,6 @@
 #include "Gamebryo/NiPoint3.hpp"
 #include "BallisticMelee.hpp"
 #include "Globals.hpp"
-#include "ConfigManager.hpp"
 
 constexpr const char* CONFIG_SECTION = "BallisticMelee";
 
@@ -115,7 +114,7 @@ void __fastcall Hook_ReduceDamage(CommonLib::HitData* hitData, void* edx, bool a
 
 
 void installBallisticMeleeHooks() {
-	if (Globals::g_configManager.getKey<bool>(CONFIG_SECTION, "bEnabled")) {
+	if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bEnabled")) {
 		// Hook TESObjectWEAP::IsMeleeWeapon call in HUDMainMenu::UpdateWeaponStatus
 		WriteRelCall(0x007724CB, reinterpret_cast<std::uint32_t>(&Hook_IsMeleeWeapon));
 

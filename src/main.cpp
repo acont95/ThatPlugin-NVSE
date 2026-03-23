@@ -85,14 +85,13 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 	g_messagingInterface = static_cast<NVSEMessagingInterface*>(nvse->QueryInterface(kInterface_Messaging));
 	g_messagingInterface->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
 
-	g_Ini.SetUnicode();
-	SI_Error rc = g_Ini.LoadFile(g_configPath);
+	Globals::g_Ini.SetQuotes();
+	Globals::g_Ini.SetUnicode();
+	SI_Error rc = Globals::g_Ini.LoadFile(g_configPath);
 	if (rc < 0) {
 		configMissing = true;
 		return true;
 	};
-
-	Globals::g_configManager.setConfigData(&g_Ini);
 
 	if (!nvse->isEditor) {
 		installBallisticMeleeHooks();

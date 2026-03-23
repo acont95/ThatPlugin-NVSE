@@ -1,5 +1,5 @@
 #pragma once
-#include "ConfigManager.hpp"
+#include "SimpleIni.h"
 
 namespace CommonLib
 {
@@ -10,5 +10,5 @@ namespace CommonLib
 }
 
 namespace Globals {
-    extern ConfigManager g_configManager;
+    extern CSimpleIniA g_Ini;
 }
