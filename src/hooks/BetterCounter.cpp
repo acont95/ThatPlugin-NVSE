@@ -47,8 +47,8 @@ int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 	const char* noReserveDisplay = "%i";
 	const char* clipCountDisplay = "%i%s%i%s%i";
 
-	const char* reserverSeperator = Globals::g_Ini.GetValue(CONFIG_SECTION, "cReserverSeperator", "/");
-	const char* clipSeperator = Globals::g_Ini.GetValue(CONFIG_SECTION, "cClipSeperator", "|");
+	const char* reserveSeperator = Globals::g_Ini.GetValue(CONFIG_SECTION, "sReserveSeperator", "/");
+	const char* clipSeperator = Globals::g_Ini.GetValue(CONFIG_SECTION, "sClipSeperator", "|");
 
 	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacterGetSingleton();
 	CommonLib::ItemChange* weaponItemChange = ThisStdCall<CommonLib::ItemChange*>(Process_GetCurrentWeapon_Addr, pPlayer->pCurrentProcess);
@@ -80,10 +80,10 @@ int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 	}
 
 	if (!hideReserve && showClipSize) {
-		return snprintf(Buffer, BufferCount, clipCountDisplay, clipCount, clipSeperator, clipSize, reserverSeperator, reserveCount);
+		return snprintf(Buffer, BufferCount, clipCountDisplay, clipCount, clipSeperator, clipSize, reserveSeperator, reserveCount);
 	}
 
-	return snprintf(Buffer, BufferCount, baseDisplay, clipCount, reserverSeperator, reserveCount);
+	return snprintf(Buffer, BufferCount, baseDisplay, clipCount, reserveSeperator, reserveCount);
 }
 
 
