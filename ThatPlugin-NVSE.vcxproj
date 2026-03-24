@@ -92,6 +92,11 @@
     <ManifestResourceCompile>
       <ResourceOutputFileName />
     </ManifestResourceCompile>
+    <PostBuildEvent>
+      <Command>if "$(ConfigurationName)"=="Release" (
+powershell -NoProfile -ExecutionPolicy Unrestricted -File $(SolutionDir)package.ps1 -SolutionDir $(SolutionDir) -TargetDir $(TargetDir) -TargetName $(TargetName)
+)</Command>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="external\NVSE\nvse\nvse\containers.cpp" />
