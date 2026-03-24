@@ -97,6 +97,9 @@
 powershell -NoProfile -ExecutionPolicy Unrestricted -File $(SolutionDir)package.ps1 -SolutionDir $(SolutionDir) -TargetDir $(TargetDir) -TargetName $(TargetName)
 )</Command>
     </PostBuildEvent>
+    <PreBuildEvent>
+      <Command>if $(ConfigurationName) == Release (powershell Remove-Item -Path $(SolutionDir)dist/* -Force -Recurse)</Command>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="external\NVSE\nvse\nvse\containers.cpp" />

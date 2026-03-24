@@ -16,7 +16,7 @@ PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 NVSEMessagingInterface* g_messagingInterface{};
 NVSEInterface* g_nvseInterface{};
 
-constexpr char g_PluginVersion[] = "0.1.1";
+constexpr char g_PluginVersion[] = "0.2.0";
 constexpr char g_configPath[] = "Data/NVSE/Plugins/ThatPlugin.ini";
 CSimpleIniA g_Ini;
 bool configMissing;
