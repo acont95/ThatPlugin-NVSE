@@ -131,7 +131,7 @@ powershell -NoProfile -ExecutionPolicy Unrestricted -File $(SolutionDir)package.
     <ClCompile Include="src\Globals.cpp" />
     <ClCompile Include="src\hooks\BallisticMelee.cpp" />
     <ClCompile Include="src\hooks\BetterCounter.cpp" />
-    <ClCompile Include="src\hooks\BottomlessClips.cpp" />
+    <ClCompile Include="src\hooks\BottomlessClip.cpp" />
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
   <ItemGroup>

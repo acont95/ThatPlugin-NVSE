@@ -90,7 +90,7 @@
     <ClCompile Include="src\Globals.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\hooks\BottomlessClips.cpp">
+    <ClCompile Include="src\hooks\BottomlessClip.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
