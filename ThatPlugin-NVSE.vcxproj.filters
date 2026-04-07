@@ -93,6 +93,9 @@
     <ClCompile Include="src\hooks\BottomlessClip.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\hooks\GuidedProjectiles.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\BallisticMelee.hpp">
@@ -105,6 +108,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\BottomlessClip.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\GuidedProjectiles.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

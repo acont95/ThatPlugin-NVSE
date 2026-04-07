@@ -5,6 +5,7 @@
 #include "BallisticMelee.hpp"
 #include "BetterCounter.hpp"
 #include "BottomlessClip.hpp"
+#include "GuidedProjectiles.hpp"
 #include "SimpleIni.h"
 #include "Globals.hpp"
 
@@ -98,6 +99,7 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 		installBallisticMeleeHooks();
 		installBetterCounterHooks();
 		installBottomlessClipHooks();
+		installGuidedProjectilesHook();
 	}
 
 	return true;
