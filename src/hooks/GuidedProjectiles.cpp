@@ -19,6 +19,7 @@
 #include "Gamebryo/NiAVObject.hpp"
 #include "Gamebryo/NiNode.hpp"
 #include "Gamebryo/NiPointer.hpp"
+#include "Gamebryo/NiMatrix3.hpp"
 #include "Havok/hkVector4.hpp"
 #include "Havok/hkBool.hpp"
 #include "Havok/hkpWorldRayCastInput.hpp"
@@ -67,6 +68,14 @@ CommonLib::hkpWorldRayCastOutput::hkpWorldRayCastOutput()
     m_rootCollidable(nullptr) {}
 CommonLib::hkpWorldRayCastOutput::~hkpWorldRayCastOutput() = default;
 
+CommonLib::NiMatrix3::NiMatrix3() {
+    m_pEntry[0] = NiPoint3{ 0.0f, 0.0f, 0.0f };
+    m_pEntry[1] = NiPoint3{ 0.0f, 0.0f, 0.0f };
+    m_pEntry[2] = NiPoint3{ 0.0f, 0.0f, 0.0f };
+}
+
+CommonLib::NiMatrix3::~NiMatrix3() = default;
+
 constexpr uint32_t Main_spWorldRoot_GetCamera_Address = 0x00524C90;
 constexpr uint32_t hkpWorld_castRay_Address = 0x00C92040;
 constexpr uint32_t bhkCharacterController_GetWorld_Address = 0x00621AD0;
@@ -75,6 +84,10 @@ constexpr uint32_t bhkCharacterController_GetCollisionFilter_Address = 0x0070C44
 constexpr uint32_t bhkCharacterController_Move_Address = 0x00C73170;
 constexpr uint32_t bhkCharacterController_FindBSReference_Address = 0x00C6DEC0;
 constexpr uint32_t TESObjectREFR_IsProjectile_Address = 0x005725B0;
+constexpr uint32_t NiMatrix3_MakeXRotation_Address = 0x00524AC0;
+constexpr uint32_t NiMatrix3_MakeYRotation_Address = 0x0043F850;
+constexpr uint32_t NiMatrix3_MakeZRotation_Address = 0x004A0C90;
+constexpr uint32_t TESObjectREFR_Get3D_Address = 0x0043FCD0;
 
 constexpr uint32_t MakeLine_Address = 0x004B3890;
 constexpr uint32_t TES_AddTempDebugObject_Address = 0x00458E20;
@@ -144,37 +157,100 @@ int __fastcall Hook_bhkCharacterController_Move(CommonLib::bhkCharacterControlle
         CommonLib::Projectile* projectile = static_cast<CommonLib::Projectile*>(bsRef);
 
         if (isProjectileGuided(projectile)) {
-            Console_Print("%.6f %.6f %.6f", apMoveData->Displacement.x, apMoveData->Displacement.y, apMoveData->Displacement.z);
+            CommonLib::NiPoint3 projectileLocation = projectile->data.Location;
+            CommonLib::NiAVObject* projectile3d = ThisStdCall<CommonLib::NiAVObject*>(TESObjectREFR_Get3D_Address, projectile);
 
-            CommonLib::NiPoint3 location = projectile->data.Location;
             CommonLib::NiPoint3 hitPoint = getRayCastHitPoint(apCharacterController);
-            CommonLib::NiPoint3 direction{ hitPoint.x - location.x, hitPoint.y - location.y, hitPoint.z - location.z };
+            CommonLib::NiPoint3 direction{ hitPoint.x - projectileLocation.x, hitPoint.y - projectileLocation.y, hitPoint.z - projectileLocation.z };
 
             float directionMag = std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
-            CommonLib::NiPoint3 newDisplacement{ direction.x / directionMag, direction.y / directionMag, direction.z / directionMag };
+            CommonLib::NiPoint3 directionNormal{ direction.x / directionMag, direction.y / directionMag, direction.z / directionMag };
+
+            CommonLib::NiMatrix3 rotation = projectile3d->m_kLocal.m_Rotate;
+
+
+            Console_Print("ROT MATRIX:");
+
+            Console_Print(
+                "%.6f %.6f %.6f",
+                rotation.m_pEntry[0].x, rotation.m_pEntry[0].y, rotation.m_pEntry[0].z
+            );
+
+            Console_Print(
+                "%.6f %.6f %.6f",
+                rotation.m_pEntry[1].x, rotation.m_pEntry[1].y, rotation.m_pEntry[1].z
+            );
+
+            Console_Print(
+                "%.6f %.6f %.6f",
+                rotation.m_pEntry[2].x, rotation.m_pEntry[2].y, rotation.m_pEntry[2].z
+            );
+
+            CommonLib::NiPoint3 directionLocal
+            {
+                // X
+                rotation.m_pEntry[0].x * directionNormal.x +
+                rotation.m_pEntry[1].x * directionNormal.y +
+                rotation.m_pEntry[2].x * directionNormal.z,
+
+                // Y
+                rotation.m_pEntry[0].y * directionNormal.x +
+                rotation.m_pEntry[1].y * directionNormal.y +
+                rotation.m_pEntry[2].y * directionNormal.z,
+
+                // Z
+                rotation.m_pEntry[0].z * directionNormal.x +
+                rotation.m_pEntry[1].z * directionNormal.y +
+                rotation.m_pEntry[2].z * directionNormal.z
+            };
+
+
+            CommonLib::NiPoint3 angleLocal
+            {
+                // X
+                rotation.m_pEntry[0].x * apMoveData->Angle.x +
+                rotation.m_pEntry[1].x * apMoveData->Angle.y +
+                rotation.m_pEntry[2].x * apMoveData->Angle.z,
+
+                // Y
+                rotation.m_pEntry[0].y * apMoveData->Angle.x +
+                rotation.m_pEntry[1].y * apMoveData->Angle.y +
+                rotation.m_pEntry[2].y * apMoveData->Angle.z,
+
+                // Z
+                rotation.m_pEntry[0].z * apMoveData->Angle.x +
+                rotation.m_pEntry[1].z * apMoveData->Angle.y +
+                rotation.m_pEntry[2].z * apMoveData->Angle.z
+            };
+
 
             CommonLib::NiPoint3 currDisplacement = apMoveData->Displacement;
             float currDisplacementMag = std::sqrt(currDisplacement.x * currDisplacement.x + currDisplacement.y * currDisplacement.y + currDisplacement.z * currDisplacement.z);
 
-            newDisplacement.x *= currDisplacementMag;
-            newDisplacement.y *= currDisplacementMag;
-            newDisplacement.z *= currDisplacementMag;
+            directionLocal.x *= currDisplacementMag;
+            directionLocal.y *= currDisplacementMag;
+            directionLocal.z *= currDisplacementMag;
+
+            Console_Print("CURRENT MAG %.6f", currDisplacementMag);
+            Console_Print("BEFORE %.6f %.6f %.6f", apMoveData->Displacement.x, apMoveData->Displacement.y, apMoveData->Displacement.z);
+            apMoveData->Displacement.x = directionLocal.x;
+            apMoveData->Displacement.y = directionLocal.y;
+            apMoveData->Displacement.z = directionLocal.z;
+            Console_Print("Angle %.6f %.6f %.6f", apMoveData->Angle.x, apMoveData->Angle.y, apMoveData->Angle.z);
+            apMoveData->Angle = angleLocal;
+            Console_Print("Angle New %.6f %.6f %.6f", apMoveData->Angle.x, apMoveData->Angle.y, apMoveData->Angle.z);
+
 
             const CommonLib::NiColorA color{ 0.0f, 1.0f, 0.0f, 1.0f };
-            void* line = CdeclCall<void*>(MakeLine_Address, &location, &color, &hitPoint, &color, true);
+            void* line = CdeclCall<void*>(MakeLine_Address, &projectileLocation, &color, &hitPoint, &color, true);
             void* tes = *(void**)0x11DEA10;
             ThisStdCall<void>(TES_AddTempDebugObject_Address, tes, line, 1.0f);
-
-            apMoveData->Displacement = {
-                newDisplacement.x,
-                newDisplacement.y,
-                newDisplacement.z
-            };
         }
     }
 
 	return ThisStdCall<int>(0x00C73170, apCharacterController, apMoveData);
 }
+
 
 void installGuidedProjectilesHook() {
 	//MoveAsProjectileDetour.WriteRelCall(0x0092FFF0, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_Move));
