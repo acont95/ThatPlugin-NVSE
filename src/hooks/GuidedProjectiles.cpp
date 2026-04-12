@@ -73,6 +73,11 @@ constexpr uint32_t bhkCharacterController_GetWorld_Address = 0x00621AD0;
 constexpr uint32_t hkVector4_FromPoint_Address = 0x004A3E00;
 constexpr uint32_t bhkCharacterController_GetCollisionFilter_Address = 0x0070C440;
 constexpr uint32_t bhkCharacterController_Move_Address = 0x00C73170;
+constexpr uint32_t bhkCharacterController_FindBSReference_Address = 0x00C6DEC0;
+constexpr uint32_t TESObjectREFR_IsProjectile_Address = 0x005725B0;
+
+constexpr uint32_t MakeLine_Address = 0x004B3890;
+constexpr uint32_t TES_AddTempDebugObject_Address = 0x00458E20;
 
 constexpr float fScale = 50000.0f;
 
@@ -129,28 +134,44 @@ CommonLib::NiPoint3 getRayCastHitPoint(CommonLib::bhkCharacterController* apChar
 
 int __fastcall Hook_bhkCharacterController_Move(CommonLib::bhkCharacterController* apCharacterController, void* edx, CommonLib::MoveData* apMoveData)
 {
-    //if (apCharacterController && apMoveData) {
+    CommonLib::TESObjectREFR* bsRef = CdeclCall<CommonLib::TESObjectREFR*>(
+        bhkCharacterController_FindBSReference_Address, 
+        1000u, 
+        apCharacterController->spShapePhantom.m_pObject->phkObject
+    );
 
-    CommonLib::ProjectileListener* listener = static_cast<CommonLib::ProjectileListener*>(apCharacterController);
-    CommonLib::Projectile* projectile = listener->pProj;
-    
-    if (isProjectileGuided(projectile)) {
-        CommonLib::NiPoint3 location = projectile->data.Location;
-        CommonLib::NiPoint3 hitPoint = getRayCastHitPoint(listener);
-        CommonLib::NiPoint3 direction{ hitPoint.x - location.x, hitPoint.y - location.y, hitPoint.z - location.z };
+    if (bsRef && ThisStdCall<bool>(TESObjectREFR_IsProjectile_Address, bsRef)) {
+        CommonLib::Projectile* projectile = static_cast<CommonLib::Projectile*>(bsRef);
 
-        float directionMag = std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
-        CommonLib::NiPoint3 newVelocity{ direction.x / directionMag, direction.y / directionMag, direction.z / directionMag };
+        if (isProjectileGuided(projectile)) {
+            Console_Print("%.6f %.6f %.6f", apMoveData->Displacement.x, apMoveData->Displacement.y, apMoveData->Displacement.z);
 
-        CommonLib::NiPoint3 currVelocity = apMoveData->Displacement;
-        float currVelocityMag = std::sqrt(currVelocity.x * currVelocity.x + currVelocity.y * currVelocity.y + currVelocity.z * currVelocity.z);
+            CommonLib::NiPoint3 location = projectile->data.Location;
+            CommonLib::NiPoint3 hitPoint = getRayCastHitPoint(apCharacterController);
+            CommonLib::NiPoint3 direction{ hitPoint.x - location.x, hitPoint.y - location.y, hitPoint.z - location.z };
 
-        newVelocity.x *= currVelocityMag;
-        newVelocity.y *= currVelocityMag;
-        newVelocity.z *= currVelocityMag;
-        apMoveData->Displacement = newVelocity;
+            float directionMag = std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
+            CommonLib::NiPoint3 newDisplacement{ direction.x / directionMag, direction.y / directionMag, direction.z / directionMag };
+
+            CommonLib::NiPoint3 currDisplacement = apMoveData->Displacement;
+            float currDisplacementMag = std::sqrt(currDisplacement.x * currDisplacement.x + currDisplacement.y * currDisplacement.y + currDisplacement.z * currDisplacement.z);
+
+            newDisplacement.x *= currDisplacementMag;
+            newDisplacement.y *= currDisplacementMag;
+            newDisplacement.z *= currDisplacementMag;
+
+            const CommonLib::NiColorA color{ 0.0f, 1.0f, 0.0f, 1.0f };
+            void* line = CdeclCall<void*>(MakeLine_Address, &location, &color, &hitPoint, &color, true);
+            void* tes = *(void**)0x11DEA10;
+            ThisStdCall<void>(TES_AddTempDebugObject_Address, tes, line, 1.0f);
+
+            apMoveData->Displacement = {
+                newDisplacement.x,
+                newDisplacement.y,
+                newDisplacement.z
+            };
+        }
     }
-    //}
 
 	return ThisStdCall<int>(0x00C73170, apCharacterController, apMoveData);
 }
