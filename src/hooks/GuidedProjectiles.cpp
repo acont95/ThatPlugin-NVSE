@@ -14,6 +14,7 @@
 #include "Bethesda/ProjectileListener.hpp"
 #include "Bethesda/MoveData.hpp"
 #include "Bethesda/bhkCharacterStateProjectile.hpp"
+#include "Bethesda/bhkShapePhantom.hpp"
 #include "Gamebryo/NiCamera.hpp"
 #include "Gamebryo/NiPoint3.hpp"
 #include "Gamebryo/NiColorA.hpp"
@@ -26,6 +27,8 @@
 #include "Havok/hkpWorldRayCastInput.hpp"
 #include "Havok/hkpWorldRayCastOutput.hpp"
 #include "Havok/hkpWorld.hpp"
+#include "Havok/hkRotation.hpp"
+#include "Havok/hkpShapePhantom.hpp"
 
 CallDetour GetCharacterStateDetour{};
 CallDetour QUseZDetour{};
@@ -86,6 +89,7 @@ constexpr uint32_t bhkCharacterController_GetCollisionFilter_Address = 0x0070C44
 constexpr uint32_t bhkCharacterController_FindBSReference_Address = 0x00C6DEC0;
 constexpr uint32_t TESObjectREFR_IsProjectile_Address = 0x005725B0;
 constexpr uint32_t bhkCharacterController_GetPosition_Address = 0x00C6E300;
+constexpr uint32_t hkVector4_setRotatedDir_Address = 0x00C7F700;
 
 constexpr uint32_t MakeLine_Address = 0x004B3890;
 constexpr uint32_t TES_AddTempDebugObject_Address = 0x00458E20;
@@ -184,15 +188,59 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
             ThisStdCall<void>(bhkCharacterController_GetPosition_Address, apCharacterController, &projectileLocation);
 
             CommonLib::hkVector4 hitPoint = getCameraRayCastHitPoint(apCharacterController);
-            CommonLib::hkVector4 zero{ _mm_set1_ps(1.0f) };
 
             printVector(apCharacterController->VelocityMod, "Velocity Mod");
             printVector(apCharacterController->OutVelocity, "Out Velocity");
             printVector(apCharacterController->Direction, "Direction");
             printVector(apCharacterController->ForwardVec, "Forward Vec");
             printVector(apCharacterController->UpVec, "Up Vec");
+            Console_Print("Pitch Angle: %.6f", apCharacterController->fPitchAngle);
+            Console_Print("Roll Angle: %.6f", apCharacterController->fRollAngle);
 
             if (bDebugRayCast) debugRayCast(projectileLocation, hitPoint);
+
+            CommonLib::hkVector4 forward = apCharacterController->ForwardVec;
+            CommonLib::hkVector4 up = apCharacterController->UpVec;
+            CommonLib::hkVector4 right = { forward.m_quad.m128_f32[1], -forward.m_quad.m128_f32[0], 0.0f, 0.0f };
+
+            CommonLib::hkRotation rotationMatrix = { right, forward, up };
+
+            CommonLib::hkVector4 localVelocityOld = apCharacterController->Direction;
+            float localVelocityOldMag = std::sqrt(
+                localVelocityOld.m_quad.m128_f32[0] * localVelocityOld.m_quad.m128_f32[0]
+                + localVelocityOld.m_quad.m128_f32[1] * localVelocityOld.m_quad.m128_f32[1]
+                + localVelocityOld.m_quad.m128_f32[2] * localVelocityOld.m_quad.m128_f32[2]
+                + localVelocityOld.m_quad.m128_f32[3] * localVelocityOld.m_quad.m128_f32[3]
+            );
+
+            CommonLib::hkVector4 globalVelocityNew{
+                hitPoint.m_quad.m128_f32[0] - projectileLocation.m_quad.m128_f32[0],
+                hitPoint.m_quad.m128_f32[1] - projectileLocation.m_quad.m128_f32[1],
+                hitPoint.m_quad.m128_f32[2] - projectileLocation.m_quad.m128_f32[2],
+                hitPoint.m_quad.m128_f32[3] - projectileLocation.m_quad.m128_f32[3],
+            };
+
+            float globalVelocityMag = std::sqrt(
+                globalVelocityNew.m_quad.m128_f32[0] * globalVelocityNew.m_quad.m128_f32[0]
+                + globalVelocityNew.m_quad.m128_f32[1] * globalVelocityNew.m_quad.m128_f32[1]
+                + globalVelocityNew.m_quad.m128_f32[2] * globalVelocityNew.m_quad.m128_f32[2]
+                + globalVelocityNew.m_quad.m128_f32[3] * globalVelocityNew.m_quad.m128_f32[3]
+            );
+
+            globalVelocityNew.m_quad.m128_f32[0] /= globalVelocityMag;
+            globalVelocityNew.m_quad.m128_f32[1] /= globalVelocityMag;
+            globalVelocityNew.m_quad.m128_f32[2] /= globalVelocityMag;
+            globalVelocityNew.m_quad.m128_f32[3] /= globalVelocityMag;
+
+            CommonLib::hkVector4 localVelocityNew{ _mm_set1_ps(0.0f) };
+            ThisStdCall<void>(hkVector4_setRotatedDir_Address, &localVelocityNew, &rotationMatrix, globalVelocityNew);
+
+            localVelocityNew.m_quad.m128_f32[0] *= localVelocityOldMag;
+            localVelocityNew.m_quad.m128_f32[1] *= localVelocityOldMag;
+            localVelocityNew.m_quad.m128_f32[2] *= localVelocityOldMag;
+            localVelocityNew.m_quad.m128_f32[3] *= localVelocityOldMag;
+
+            //apCharacterController->Direction = localVelocityNew;
 
         }
     }
@@ -200,27 +248,7 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
     return ThisStdCall<CommonLib::bhkCharacterStateProjectile*>(GetCharacterStateDetour.GetOverwrittenAddr(), apCharacterController);
 }
 
-bool __fastcall Hook_bhkCharacterController_QUseZ(CommonLib::bhkCharacterController* apCharacterController)
-{
-    CommonLib::TESObjectREFR* bsRef = CdeclCall<CommonLib::TESObjectREFR*>(
-        bhkCharacterController_FindBSReference_Address,
-        1000u,
-        apCharacterController->spShapePhantom.m_pObject->phkObject
-    );
-
-    if (bsRef && ThisStdCall<bool>(TESObjectREFR_IsProjectile_Address, bsRef)) {
-        CommonLib::Projectile* projectile = static_cast<CommonLib::Projectile*>(bsRef);
-
-        if (isProjectileGuided(projectile)) {
-            printVector(apCharacterController->Direction, "Direction Pre");
-        }
-    }
-
-    return ThisStdCall<bool>(QUseZDetour.GetOverwrittenAddr(), apCharacterController);
-}
-
 
 void installGuidedProjectilesHook() {
 	GetCharacterStateDetour.WriteRelCall(0x00C737DD, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_GetCharacterState));
-    QUseZDetour.WriteRelCall(0x00C73561, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_QUseZ));
 }
