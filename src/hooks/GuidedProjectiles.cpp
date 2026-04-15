@@ -90,6 +90,7 @@ constexpr uint32_t bhkCharacterController_FindBSReference_Address = 0x00C6DEC0;
 constexpr uint32_t TESObjectREFR_IsProjectile_Address = 0x005725B0;
 constexpr uint32_t bhkCharacterController_GetPosition_Address = 0x00C6E300;
 constexpr uint32_t hkVector4_setRotatedDir_Address = 0x00C7F700;
+constexpr uint32_t hkMatrix3_invert_Address = 0x00CD4F10;
 
 constexpr uint32_t MakeLine_Address = 0x004B3890;
 constexpr uint32_t TES_AddTempDebugObject_Address = 0x00458E20;
@@ -171,6 +172,17 @@ void printVector(CommonLib::hkVector4 vec, const char* name) {
     );
 }
 
+CommonLib::hkVector4 hkVector4Cross(const CommonLib::hkVector4 vec1, const CommonLib::hkVector4 vec2) {
+    CommonLib::hkVector4 result{ 
+        vec1.m_quad.m128_f32[1] * vec2.m_quad.m128_f32[2] - vec1.m_quad.m128_f32[2] * vec2.m_quad.m128_f32[1],
+        vec1.m_quad.m128_f32[2] * vec2.m_quad.m128_f32[0] - vec1.m_quad.m128_f32[0] * vec2.m_quad.m128_f32[2],
+        vec1.m_quad.m128_f32[0] * vec2.m_quad.m128_f32[1] - vec1.m_quad.m128_f32[1] * vec2.m_quad.m128_f32[0],
+        0.0f
+    };
+
+    return result;
+}
+
 
 CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_GetCharacterState(CommonLib::bhkCharacterController* apCharacterController)
 {
@@ -189,21 +201,14 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
 
             CommonLib::hkVector4 hitPoint = getCameraRayCastHitPoint(apCharacterController);
 
-            printVector(apCharacterController->VelocityMod, "Velocity Mod");
-            printVector(apCharacterController->OutVelocity, "Out Velocity");
-            printVector(apCharacterController->Direction, "Direction");
-            printVector(apCharacterController->ForwardVec, "Forward Vec");
-            printVector(apCharacterController->UpVec, "Up Vec");
-            Console_Print("Pitch Angle: %.6f", apCharacterController->fPitchAngle);
-            Console_Print("Roll Angle: %.6f", apCharacterController->fRollAngle);
-
             if (bDebugRayCast) debugRayCast(projectileLocation, hitPoint);
 
             CommonLib::hkVector4 forward = apCharacterController->ForwardVec;
             CommonLib::hkVector4 up = apCharacterController->UpVec;
-            CommonLib::hkVector4 right = { forward.m_quad.m128_f32[1], -forward.m_quad.m128_f32[0], 0.0f, 0.0f };
+            CommonLib::hkVector4 right = hkVector4Cross(forward, up);
 
-            CommonLib::hkRotation rotationMatrix = { right, forward, up };
+            CommonLib::hkRotation rotationMatrix = { right, forward, up};
+            ThisStdCall<void>(hkMatrix3_invert_Address, &rotationMatrix, 0.00000011920929f);
 
             CommonLib::hkVector4 localVelocityOld = apCharacterController->Direction;
             float localVelocityOldMag = std::sqrt(
@@ -217,30 +222,29 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
                 hitPoint.m_quad.m128_f32[0] - projectileLocation.m_quad.m128_f32[0],
                 hitPoint.m_quad.m128_f32[1] - projectileLocation.m_quad.m128_f32[1],
                 hitPoint.m_quad.m128_f32[2] - projectileLocation.m_quad.m128_f32[2],
-                hitPoint.m_quad.m128_f32[3] - projectileLocation.m_quad.m128_f32[3],
+                0.0f
             };
 
             float globalVelocityMag = std::sqrt(
                 globalVelocityNew.m_quad.m128_f32[0] * globalVelocityNew.m_quad.m128_f32[0]
                 + globalVelocityNew.m_quad.m128_f32[1] * globalVelocityNew.m_quad.m128_f32[1]
                 + globalVelocityNew.m_quad.m128_f32[2] * globalVelocityNew.m_quad.m128_f32[2]
-                + globalVelocityNew.m_quad.m128_f32[3] * globalVelocityNew.m_quad.m128_f32[3]
             );
 
             globalVelocityNew.m_quad.m128_f32[0] /= globalVelocityMag;
             globalVelocityNew.m_quad.m128_f32[1] /= globalVelocityMag;
             globalVelocityNew.m_quad.m128_f32[2] /= globalVelocityMag;
-            globalVelocityNew.m_quad.m128_f32[3] /= globalVelocityMag;
+            globalVelocityNew.m_quad.m128_f32[3] = 0.0f;
 
             CommonLib::hkVector4 localVelocityNew{ _mm_set1_ps(0.0f) };
-            ThisStdCall<void>(hkVector4_setRotatedDir_Address, &localVelocityNew, &rotationMatrix, globalVelocityNew);
+            ThisStdCall<void>(hkVector4_setRotatedDir_Address, &localVelocityNew, &rotationMatrix, &globalVelocityNew);
 
-            localVelocityNew.m_quad.m128_f32[0] *= localVelocityOldMag;
-            localVelocityNew.m_quad.m128_f32[1] *= localVelocityOldMag;
+            localVelocityNew.m_quad.m128_f32[0] *= -localVelocityOldMag;
+            localVelocityNew.m_quad.m128_f32[1] *= -localVelocityOldMag;
             localVelocityNew.m_quad.m128_f32[2] *= localVelocityOldMag;
-            localVelocityNew.m_quad.m128_f32[3] *= localVelocityOldMag;
+            localVelocityNew.m_quad.m128_f32[3] = 0.0f;
 
-            //apCharacterController->Direction = localVelocityNew;
+            apCharacterController->Direction = localVelocityNew;
 
         }
     }
