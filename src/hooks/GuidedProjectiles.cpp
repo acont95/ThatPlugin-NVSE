@@ -184,6 +184,32 @@ CommonLib::hkVector4 hkVector4Cross(const CommonLib::hkVector4 vec1, const Commo
 }
 
 
+static inline CommonLib::hkMatrix3 TransposeMatrix3x3(const CommonLib::hkMatrix3& m)
+{
+    CommonLib::hkMatrix3 out;
+
+    // row 0 becomes col 0
+    out.m_col0.m_quad.m128_f32[0] = m.m_col0.m_quad.m128_f32[0];
+    out.m_col0.m_quad.m128_f32[1] = m.m_col1.m_quad.m128_f32[0];
+    out.m_col0.m_quad.m128_f32[2] = m.m_col2.m_quad.m128_f32[0];
+    out.m_col0.m_quad.m128_f32[3] = 0.0f;
+
+    // row 1 becomes col 1
+    out.m_col1.m_quad.m128_f32[0] = m.m_col0.m_quad.m128_f32[1];
+    out.m_col1.m_quad.m128_f32[1] = m.m_col1.m_quad.m128_f32[1];
+    out.m_col1.m_quad.m128_f32[2] = m.m_col2.m_quad.m128_f32[1];
+    out.m_col1.m_quad.m128_f32[3] = 0.0f;
+
+    // row 2 becomes col 2
+    out.m_col2.m_quad.m128_f32[0] = m.m_col0.m_quad.m128_f32[2];
+    out.m_col2.m_quad.m128_f32[1] = m.m_col1.m_quad.m128_f32[2];
+    out.m_col2.m_quad.m128_f32[2] = m.m_col2.m_quad.m128_f32[2];
+    out.m_col2.m_quad.m128_f32[3] = 0.0f;
+
+    return out;
+}
+
+
 CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_GetCharacterState(CommonLib::bhkCharacterController* apCharacterController)
 {
     CommonLib::TESObjectREFR* bsRef = CdeclCall<CommonLib::TESObjectREFR*>(
@@ -204,6 +230,10 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
             if (bDebugRayCast) debugRayCast(projectileLocation, hitPoint);
 
             CommonLib::hkVector4 forward = apCharacterController->ForwardVec;
+            forward.m_quad.m128_f32[0] *= -1.0f;
+            forward.m_quad.m128_f32[1] *= -1.0f;
+            forward.m_quad.m128_f32[2] *= -1.0f;
+            forward.m_quad.m128_f32[3] *= -1.0f;
             CommonLib::hkVector4 up = apCharacterController->UpVec;
             CommonLib::hkVector4 right = hkVector4Cross(forward, up);
 
@@ -239,8 +269,8 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
             CommonLib::hkVector4 localVelocityNew{ _mm_set1_ps(0.0f) };
             ThisStdCall<void>(hkVector4_setRotatedDir_Address, &localVelocityNew, &rotationMatrix, &globalVelocityNew);
 
-            localVelocityNew.m_quad.m128_f32[0] *= -localVelocityOldMag;
-            localVelocityNew.m_quad.m128_f32[1] *= -localVelocityOldMag;
+            localVelocityNew.m_quad.m128_f32[0] *= localVelocityOldMag;
+            localVelocityNew.m_quad.m128_f32[1] *= localVelocityOldMag;
             localVelocityNew.m_quad.m128_f32[2] *= localVelocityOldMag;
             localVelocityNew.m_quad.m128_f32[3] = 0.0f;
 
