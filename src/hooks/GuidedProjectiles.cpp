@@ -90,11 +90,14 @@ constexpr uint32_t bhkCharacterController_GetCollisionFilter_Address = 0x0070C44
 constexpr uint32_t bhkCharacterController_FindBSReference_Address = 0x00C6DEC0;
 constexpr uint32_t TESObjectREFR_IsProjectile_Address = 0x005725B0;
 constexpr uint32_t bhkCharacterController_GetPosition_Address = 0x00C6E300;
+constexpr uint32_t NiMatrix3_FromEulerAnglesZXY_Address = 0x00A59660;
+constexpr uint32_t NiMatrix3_ToEulerAnglesZXY_Address = 0x00A59400;
+constexpr uint32_t TESObjectREFR_SetAngleOnReference_Address = 0x00575700;
 
 constexpr uint32_t MakeLine_Address = 0x004B3890;
 constexpr uint32_t TES_AddTempDebugObject_Address = 0x00458E20;
 
-constexpr bool bDebugRayCast = false;
+constexpr bool bDebugRayCast = true;
 constexpr float fScale = 50000.0f;
 
 bool isProjectileGuided(CommonLib::Projectile* apProjectile) {
@@ -133,7 +136,6 @@ CommonLib::hkVector4 getCameraRayCastHitPoint(CommonLib::bhkCharacterController*
     ThisStdCall<void>(hkpWorld_castRay_Address, reinterpret_cast<CommonLib::hkpWorld*>(pBhkWorld->phkObject), &rayCastInput, &rayCastOutput);
 
     CommonLib::hkVector4 hitPoint = startVec + (endVec - startVec) * rayCastOutput.m_hitFraction;
-
     return hitPoint;
 }
 
@@ -167,13 +169,25 @@ void printVector(CommonLib::hkVector4 vec, const char* name) {
     );
 }
 
+void printPoint(CommonLib::NiPoint3 vec, const char* name) {
+    Console_Print(
+        "%s %.6f %.6f %.6f",
+        name,
+        vec.x,
+        vec.y,
+        vec.z
+    );
+}
+
 
 CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_GetCharacterState(CommonLib::bhkCharacterController* apCharacterController)
 {
+    CommonLib::bhkShapePhantom* shapePhantom = apCharacterController->spShapePhantom.m_pObject;
+    CommonLib::hkReferencedObject* referencedObject = shapePhantom->phkObject;
     CommonLib::TESObjectREFR* bsRef = CdeclCall<CommonLib::TESObjectREFR*>(
         bhkCharacterController_FindBSReference_Address,
         1000u,
-        apCharacterController->spShapePhantom.m_pObject->phkObject
+        referencedObject
     );
 
     if (bsRef && ThisStdCall<bool>(TESObjectREFR_IsProjectile_Address, bsRef)) {
@@ -186,12 +200,17 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
             CommonLib::hkVector4 hitPoint = getCameraRayCastHitPoint(apCharacterController);
             if (bDebugRayCast) debugRayCast(projectileLocation, hitPoint);
 
+            // Translation
+            // Forward points backwards... must flip
             CommonLib::hkVector4 forward = apCharacterController->ForwardVec;
             forward.setNeg3(forward);
             CommonLib::hkVector4 up = apCharacterController->UpVec;
             CommonLib::hkVector4 right = forward.cross3(up);
+            forward.normalize3();
+            up.normalize3();
+            right.normalize3();
 
-            CommonLib::hkRotation rotationMatrix = { right, forward, up};
+            CommonLib::hkRotation rotationMatrix = { right, forward, up };
             CommonLib::hkTransform transform{
                 rotationMatrix,
                 projectileLocation
@@ -201,28 +220,57 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
             localVelocityNew.setTransformedInversePos(transform, hitPoint);
             localVelocityNew.normalize3();
             localVelocityNew *= apCharacterController->Direction.length3();
+            if (localVelocityNew.isNormalized3(0.000001f).m_bool) {
+                apCharacterController->Direction = localVelocityNew;
+            }
 
-            apCharacterController->Direction = localVelocityNew;
+            // Rotation
+            CommonLib::NiMatrix3 rotation3d {};
+            ThisStdCall<void>(NiMatrix3_FromEulerAnglesZXY_Address, &rotation3d, projectile->data.Angle.z, projectile->data.Angle.x, projectile->data.Angle.y);
+
+            CommonLib::hkVector4 up3d = CommonLib::hkVector4{ 0.0f, 0.0f, 1.0f, 0.0f };
+            CommonLib::hkVector4 directionForward = hitPoint - projectileLocation;
+            CommonLib::hkVector4 directionRight = directionForward.cross3(up3d);
+            CommonLib::hkVector4 directionUp = directionForward.cross3(directionRight);
+            directionForward.normalize3();
+            directionRight.normalize3();
+            directionUp.normalize3();
+
+            CommonLib::NiMatrix3 rotationNew3d{};
+
+            rotationNew3d.m_pEntry[0] = CommonLib::NiPoint3{ 
+                directionRight.m_quad.m128_f32[0], 
+                directionForward.m_quad.m128_f32[0],
+                directionUp.m_quad.m128_f32[0]
+            };
+            rotationNew3d.m_pEntry[1] = CommonLib::NiPoint3{
+                directionRight.m_quad.m128_f32[1],
+                directionForward.m_quad.m128_f32[1],
+                directionUp.m_quad.m128_f32[1]
+            };
+            rotationNew3d.m_pEntry[2] = CommonLib::NiPoint3{
+                directionRight.m_quad.m128_f32[2],
+                directionForward.m_quad.m128_f32[2],
+                directionUp.m_quad.m128_f32[2]
+            };
+
+            CommonLib::NiPoint3 newReferenceAngle{};
+            ThisStdCall<void>(NiMatrix3_ToEulerAnglesZXY_Address, &rotationNew3d, &newReferenceAngle.z, &newReferenceAngle.x, &newReferenceAngle.y);
+            ThisStdCall<void>(TESObjectREFR_SetAngleOnReference_Address, projectile, newReferenceAngle);
         }
     }
 
     return ThisStdCall<CommonLib::bhkCharacterStateProjectile*>(GetCharacterStateDetour.GetOverwrittenAddr(), apCharacterController);
 }
 
-
-bool __fastcall Hook_Projectile_HasFlag(CommonLib::Projectile* apProjectile, CommonLib::Projectile::ProjectileFlags flag)
-{
-    return true;
-}
-
 bool __fastcall Hook_Projectile_Sync3DWithReference(CommonLib::Projectile* apProjectile, bool abSyncRotation, bool abDoArcReorientation)
 {
-    return ThisStdCall<bool>(SyncWith3dRefDetour.GetOverwrittenAddr(), apProjectile, true, true);
+    abSyncRotation = isProjectileGuided(apProjectile) ? true : abSyncRotation;
+    return ThisStdCall<bool>(SyncWith3dRefDetour.GetOverwrittenAddr(), apProjectile, abSyncRotation, abDoArcReorientation);
 }
 
 
 void installGuidedProjectilesHook() {
 	GetCharacterStateDetour.WriteRelCall(0x00C737DD, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_GetCharacterState));
-    HasFlagDetour.WriteRelCall(0x009BF514, reinterpret_cast<std::uint32_t>(&Hook_Projectile_HasFlag));
     SyncWith3dRefDetour.WriteRelCall(0x009B8552, reinterpret_cast<std::uint32_t>(&Hook_Projectile_Sync3DWithReference));
 }
