@@ -4,6 +4,7 @@
 #include "nvse/PluginAPI.h"
 #include "nvse/SafeWrite.h"
 #include "Bethesda/bhkCharacterController.hpp"
+#include "Bethesda/bhkCharacterListener.hpp"
 #include "Bethesda/CFilter.hpp"
 #include "Bethesda/PlayerCharacter.hpp"
 #include "Bethesda/TESObjectREFR.hpp"
@@ -32,7 +33,7 @@
 #include "Havok/constants.hpp"
 
 CallDetour GetCharacterStateDetour{};
-CallDetour HasFlagDetour{};
+CallDetour SetLinearVelocityDetour{};
 CallDetour SyncWith3dRefDetour{};
 
 CommonLib::hkpWorldRayCastInput::hkpWorldRayCastInput() : 
@@ -75,14 +76,6 @@ CommonLib::hkpWorldRayCastOutput::hkpWorldRayCastOutput()
     m_rootCollidable(nullptr) {}
 CommonLib::hkpWorldRayCastOutput::~hkpWorldRayCastOutput() = default;
 
-CommonLib::NiMatrix3::NiMatrix3() {
-    m_pEntry[0] = NiPoint3{ 0.0f, 0.0f, 0.0f };
-    m_pEntry[1] = NiPoint3{ 0.0f, 0.0f, 0.0f };
-    m_pEntry[2] = NiPoint3{ 0.0f, 0.0f, 0.0f };
-}
-
-CommonLib::NiMatrix3::~NiMatrix3() = default;
-
 constexpr uint32_t Main_spWorldRoot_GetCamera_Address = 0x00524C90;
 constexpr uint32_t hkpWorld_castRay_Address = 0x00C92040;
 constexpr uint32_t bhkCharacterController_GetWorld_Address = 0x00621AD0;
@@ -109,7 +102,11 @@ bool isProjectileGuided(CommonLib::Projectile* apProjectile) {
     return false;
 }
 
-CommonLib::hkVector4 getCameraRayCastHitPoint(CommonLib::bhkCharacterController* apCharacterController) {
+void getCameraRayCastOutput(
+    CommonLib::bhkCharacterController* apCharacterController, 
+    CommonLib::hkpWorldRayCastInput* apInput, 
+    CommonLib::hkpWorldRayCastOutput* apResult
+) {
     CommonLib::NiCamera* camera = CdeclCall<CommonLib::NiCamera*>(Main_spWorldRoot_GetCamera_Address);
     const CommonLib::NiPoint3 niStart = camera->m_kWorld.m_Translate;
     CommonLib::NiPoint3 niEnd{
@@ -121,22 +118,13 @@ CommonLib::hkVector4 getCameraRayCastHitPoint(CommonLib::bhkCharacterController*
     CommonLib::CFilter filter = CommonLib::CFilter{ 0 };
     filter = *ThisStdCall<CommonLib::CFilter*>(bhkCharacterController_GetCollisionFilter_Address, apCharacterController, &filter);
 
-    CommonLib::hkpWorldRayCastInput rayCastInput = CommonLib::hkpWorldRayCastInput{};
-    CommonLib::hkVector4 startVec = CommonLib::hkVector4{};
-    CommonLib::hkVector4 endVec = CommonLib::hkVector4{};
-
-    rayCastInput.m_from = CommonLib::hkVector4::fromPoint(startVec, niStart);
-    rayCastInput.m_to = CommonLib::hkVector4::fromPoint(endVec, niEnd);
-    rayCastInput.m_filterInfo = filter.iFilter;
-
-    CommonLib::hkpWorldRayCastOutput rayCastOutput = CommonLib::hkpWorldRayCastOutput{};
+    apInput->m_from = CommonLib::hkVector4::fromPoint(niStart);
+    apInput->m_to = CommonLib::hkVector4::fromPoint(niEnd);
+    apInput->m_filterInfo = filter.iFilter;
 
     CommonLib::bhkWorld* pBhkWorld = ThisStdCall<CommonLib::bhkWorld*>(bhkCharacterController_GetWorld_Address, apCharacterController);
 
-    ThisStdCall<void>(hkpWorld_castRay_Address, reinterpret_cast<CommonLib::hkpWorld*>(pBhkWorld->phkObject), &rayCastInput, &rayCastOutput);
-
-    CommonLib::hkVector4 hitPoint = startVec + (endVec - startVec) * rayCastOutput.m_hitFraction;
-    return hitPoint;
+    ThisStdCall<void>(hkpWorld_castRay_Address, reinterpret_cast<CommonLib::hkpWorld*>(pBhkWorld->phkObject), apInput, apResult);
 }
 
 
@@ -158,7 +146,7 @@ void debugRayCast(CommonLib::hkVector4 projectileLocation, CommonLib::hkVector4 
 }
 
 
-void printVector(CommonLib::hkVector4 vec, const char* name) {
+void printVector(const CommonLib::hkVector4 vec, const char* name) {
     Console_Print(
         "%s %.6f %.6f %.6f %.6f",
         name,
@@ -169,7 +157,7 @@ void printVector(CommonLib::hkVector4 vec, const char* name) {
     );
 }
 
-void printPoint(CommonLib::NiPoint3 vec, const char* name) {
+void printPoint(const CommonLib::NiPoint3 vec, const char* name) {
     Console_Print(
         "%s %.6f %.6f %.6f",
         name,
@@ -197,15 +185,24 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
             CommonLib::hkVector4 projectileLocation{};
             ThisStdCall<void>(bhkCharacterController_GetPosition_Address, apCharacterController, &projectileLocation);
 
-            CommonLib::hkVector4 hitPoint = getCameraRayCastHitPoint(apCharacterController);
+            CommonLib::hkpWorldRayCastInput rayCastInput = CommonLib::hkpWorldRayCastInput{};
+            CommonLib::hkpWorldRayCastOutput rayCastOutput = CommonLib::hkpWorldRayCastOutput{};
+            getCameraRayCastOutput(apCharacterController, &rayCastInput, &rayCastOutput);
+
+            const CommonLib::hkpCollidable* collidable = rayCastOutput.m_rootCollidable;
+            float allowedPenetration = collidable ? collidable->m_allowedPenetrationDepth : 0.0f;
+
+            CommonLib::hkVector4 hitPoint = rayCastInput.m_from + (rayCastInput.m_to - rayCastInput.m_from) * rayCastOutput.m_hitFraction;
+
             if (bDebugRayCast) debugRayCast(projectileLocation, hitPoint);
 
             // Translation
-            // Forward points backwards... must flip
             CommonLib::hkVector4 forward = apCharacterController->ForwardVec;
-            forward.setNeg3(forward);
+            forward.setNeg3(forward); // Forward points backwards... must flip
             CommonLib::hkVector4 up = apCharacterController->UpVec;
-            CommonLib::hkVector4 right = forward.cross3(up);
+            CommonLib::hkVector4 right{}; 
+            right.setCross3(forward, up);
+            up.setCross3(right, forward);
             forward.normalize3();
             up.normalize3();
             right.normalize3();
@@ -218,49 +215,50 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
 
             CommonLib::hkVector4 localVelocityNew{};
             localVelocityNew.setTransformedInversePos(transform, hitPoint);
+            float velLen = localVelocityNew.length3();
             localVelocityNew.normalize3();
             localVelocityNew *= apCharacterController->Direction.length3();
-            if (localVelocityNew.isNormalized3(0.000001f).m_bool) {
+
+            float dist = (hitPoint - projectileLocation).length3();
+
+            if (localVelocityNew.isOk3().m_bool && std::abs(dist) >= 100.0f) {
                 apCharacterController->Direction = localVelocityNew;
             }
-
-            // Rotation
-            CommonLib::NiMatrix3 rotation3d {};
-            ThisStdCall<void>(NiMatrix3_FromEulerAnglesZXY_Address, &rotation3d, projectile->data.Angle.z, projectile->data.Angle.x, projectile->data.Angle.y);
-
-            CommonLib::hkVector4 up3d = CommonLib::hkVector4{ 0.0f, 0.0f, 1.0f, 0.0f };
-            CommonLib::hkVector4 directionForward = hitPoint - projectileLocation;
-            CommonLib::hkVector4 directionRight = directionForward.cross3(up3d);
-            CommonLib::hkVector4 directionUp = directionForward.cross3(directionRight);
-            directionForward.normalize3();
-            directionRight.normalize3();
-            directionUp.normalize3();
-
-            CommonLib::NiMatrix3 rotationNew3d{};
-
-            rotationNew3d.m_pEntry[0] = CommonLib::NiPoint3{ 
-                directionRight.m_quad.m128_f32[0], 
-                directionForward.m_quad.m128_f32[0],
-                directionUp.m_quad.m128_f32[0]
-            };
-            rotationNew3d.m_pEntry[1] = CommonLib::NiPoint3{
-                directionRight.m_quad.m128_f32[1],
-                directionForward.m_quad.m128_f32[1],
-                directionUp.m_quad.m128_f32[1]
-            };
-            rotationNew3d.m_pEntry[2] = CommonLib::NiPoint3{
-                directionRight.m_quad.m128_f32[2],
-                directionForward.m_quad.m128_f32[2],
-                directionUp.m_quad.m128_f32[2]
-            };
-
-            CommonLib::NiPoint3 newReferenceAngle{};
-            ThisStdCall<void>(NiMatrix3_ToEulerAnglesZXY_Address, &rotationNew3d, &newReferenceAngle.z, &newReferenceAngle.x, &newReferenceAngle.y);
-            ThisStdCall<void>(TESObjectREFR_SetAngleOnReference_Address, projectile, newReferenceAngle);
         }
     }
 
     return ThisStdCall<CommonLib::bhkCharacterStateProjectile*>(GetCharacterStateDetour.GetOverwrittenAddr(), apCharacterController);
+}
+
+void __fastcall Hook_bhkCharacterController_SetLinearVelocity(CommonLib::bhkCharacterController* apCharacterController, void* edx, CommonLib::hkVector4* vel)
+{
+    CommonLib::bhkShapePhantom* shapePhantom = apCharacterController->spShapePhantom.m_pObject;
+    CommonLib::hkReferencedObject* referencedObject = shapePhantom->phkObject;
+    CommonLib::TESObjectREFR* bsRef = CdeclCall<CommonLib::TESObjectREFR*>(
+        bhkCharacterController_FindBSReference_Address,
+        1000u,
+        referencedObject
+    );
+
+    if (bsRef && ThisStdCall<bool>(TESObjectREFR_IsProjectile_Address, bsRef)) {
+        CommonLib::Projectile* projectile = static_cast<CommonLib::Projectile*>(bsRef);
+        if (isProjectileGuided(projectile)) {
+            CommonLib::NiPoint3 up3d = CommonLib::NiPoint3::UNIT_Z;
+            CommonLib::NiPoint3 directionForward{ vel->m_quad.m128_f32[0], vel->m_quad.m128_f32[1] , vel->m_quad.m128_f32[2] };
+            CommonLib::NiPoint3 directionRight = directionForward.UnitCross(up3d);
+            CommonLib::NiPoint3 directionUp = directionForward.UnitCross(directionRight);
+            directionForward.Unitize();
+
+            CommonLib::NiMatrix3 rotationNew3d{directionRight, directionForward, directionUp};
+            rotationNew3d = rotationNew3d.Transpose();
+
+            CommonLib::NiPoint3 newReferenceAngle{};
+            rotationNew3d.ToEulerAnglesZXY(newReferenceAngle.z, newReferenceAngle.x, newReferenceAngle.y);
+            ThisStdCall<void>(TESObjectREFR_SetAngleOnReference_Address, projectile, newReferenceAngle);
+        }
+    }
+
+    ThisStdCall<void>(SetLinearVelocityDetour.GetOverwrittenAddr(), apCharacterController, vel);
 }
 
 bool __fastcall Hook_Projectile_Sync3DWithReference(CommonLib::Projectile* apProjectile, bool abSyncRotation, bool abDoArcReorientation)
@@ -272,5 +270,6 @@ bool __fastcall Hook_Projectile_Sync3DWithReference(CommonLib::Projectile* apPro
 
 void installGuidedProjectilesHook() {
 	GetCharacterStateDetour.WriteRelCall(0x00C737DD, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_GetCharacterState));
+    SetLinearVelocityDetour.WriteRelCall(0x00C73821, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_SetLinearVelocity));
     SyncWith3dRefDetour.WriteRelCall(0x009B8552, reinterpret_cast<std::uint32_t>(&Hook_Projectile_Sync3DWithReference));
 }
