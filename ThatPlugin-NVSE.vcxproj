@@ -102,6 +102,9 @@ powershell -NoProfile -ExecutionPolicy Unrestricted -File $(SolutionDir)package.
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="external\CommonLibFNV\src\Gamebryo\NiMatrix3.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Gamebryo\NiPoint3.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Havok\hkVector4.cpp" />
     <ClCompile Include="external\NVSE\nvse\nvse\containers.cpp" />
     <ClCompile Include="external\NVSE\nvse\nvse\GameAPI.cpp" />
     <ClCompile Include="external\NVSE\nvse\nvse\GameBSExtraData.cpp" />

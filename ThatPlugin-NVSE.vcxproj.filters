@@ -96,6 +96,15 @@
     <ClCompile Include="src\hooks\GuidedProjectiles.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="external\CommonLibFNV\src\Havok\hkVector4.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="external\CommonLibFNV\src\Gamebryo\NiPoint3.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="external\CommonLibFNV\src\Gamebryo\NiMatrix3.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\BallisticMelee.hpp">
