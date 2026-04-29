@@ -50,6 +50,7 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 		if (configMissing) {
 			Console_Print("That Plugin NVSE config file not found!");
 		}
+		loadGuidedProjectilesConfig();
 		break;
 	case NVSEMessagingInterface::kMessage_ClearScriptDataCache: break;
 	case NVSEMessagingInterface::kMessage_MainGameLoop: break;

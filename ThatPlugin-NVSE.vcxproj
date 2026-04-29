@@ -102,6 +102,20 @@ powershell -NoProfile -ExecutionPolicy Unrestricted -File $(SolutionDir)package.
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\Actor.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\ActorValueOwner.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\BaseExtraList.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\BaseFormComponent.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\CachedValuesOwner.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\Character.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\MagicCaster.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\MagicTarget.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\MobileObject.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\PlayerCharacter.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\TESChildCell.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\TESForm.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\TESRegionList.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\VATS.cpp" />
     <ClCompile Include="external\CommonLibFNV\src\Gamebryo\NiMatrix3.cpp" />
     <ClCompile Include="external\CommonLibFNV\src\Gamebryo\NiPoint3.cpp" />
     <ClCompile Include="external\CommonLibFNV\src\Havok\hkMatrix3.cpp" />

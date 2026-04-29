@@ -23,10 +23,10 @@ constexpr char CONFIG_SECTION[] = "BetterCounter";
 
 CallDetour GetFormClipRoundsDetour{};
 
-constexpr uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
-constexpr uint32_t TESObjectWEAP_GetFormClipRounds_Addr = 0x004FE160;
-constexpr uint32_t Process_GetCurrentWeapon_Addr = 0x008D81E0;
-constexpr uint32_t ItemChange_HasModEffectActive_Addr = 0x004BDA70;
+constexpr std::uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
+constexpr std::uint32_t TESObjectWEAP_GetFormClipRounds_Addr = 0x004FE160;
+constexpr std::uint32_t Process_GetCurrentWeapon_Addr = 0x008D81E0;
+constexpr std::uint32_t ItemChange_HasModEffectActive_Addr = 0x004BDA70;
 
 
 int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
@@ -52,12 +52,12 @@ int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 	const char* reserveSeperator = Globals::g_Ini.GetValue(CONFIG_SECTION, "sReserveSeperator", "/");
 	const char* clipSeperator = Globals::g_Ini.GetValue(CONFIG_SECTION, "sClipSeperator", "|");
 
-	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacterGetSingleton();
+	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
 	CommonLib::ItemChange* weaponItemChange = ThisStdCall<CommonLib::ItemChange*>(Process_GetCurrentWeapon_Addr, pPlayer->pCurrentProcess);
 	bool hasModEffectActive = ThisStdCall<bool>(
 		ItemChange_HasModEffectActive_Addr,
 		weaponItemChange,
-		CommonLib::TESObjectWEAP::WEAPON_MOD_EFFECT::WEAPON_MOD_INCREASE_CLIP_SIZE
+		CommonLib::WEAPON_MOD_EFFECT::WEAPON_MOD_INCREASE_CLIP_SIZE
 	);
 	int clipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, weaponItemChange->pContainerObj, hasModEffectActive);
 

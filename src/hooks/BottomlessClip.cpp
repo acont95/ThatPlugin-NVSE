@@ -6,7 +6,7 @@
 
 constexpr char CONFIG_SECTION[] = "BottomlessClip";
 
-constexpr uint32_t TESObjectWEAP_GetModEffectValue_Addr = 0x004BCF60;
+constexpr std::uint32_t TESObjectWEAP_GetModEffectValue_Addr = 0x004BCF60;
 
 int __fastcall Hook_GetFormClipRounds(CommonLib::TESObjectWEAP* weapon, void* edx, bool bModValue)
 {
@@ -17,7 +17,7 @@ int __fastcall Hook_GetFormClipRounds(CommonLib::TESObjectWEAP* weapon, void* ed
 		float modEffectValue = ThisStdCall<float>(
 			TESObjectWEAP_GetModEffectValue_Addr,
 			weapon,
-			CommonLib::TESObjectWEAP::WEAPON_MOD_EFFECT::WEAPON_MOD_INCREASE_CLIP_SIZE,
+			CommonLib::WEAPON_MOD_EFFECT::WEAPON_MOD_INCREASE_CLIP_SIZE,
 			0
 		);
 		return modEffectValue + weapon->cClipRounds;

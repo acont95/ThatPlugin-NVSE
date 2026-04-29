@@ -23,13 +23,13 @@ CallDetour CombatHitDetour{};
 CallDetour GetCurrentAmmoDetour{};
 CallDetour ReduceDamageDetour{};
 
-constexpr uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
-constexpr uint32_t Actor_ShouldUseAmmo_Addr = 0x008A8DD0;
-constexpr uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
-constexpr uint32_t Projectile_Constructor_Addr = 0x009BBEF0;
+constexpr std::uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
+constexpr std::uint32_t Actor_ShouldUseAmmo_Addr = 0x008A8DD0;
+constexpr std::uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
+constexpr std::uint32_t Projectile_Constructor_Addr = 0x009BBEF0;
 
 bool isBallisticMelee(CommonLib::TESObjectWEAP* weapon) {
-	return weapon->data.eType <= 2 && weapon->pFormAmmo;
+	return weapon->data.eType <= CommonLib::WEAPON_TYPE::WEAPON_TWO_HAND_MELEE && weapon->pFormAmmo;
 }
 
 bool __fastcall Hook_IsMeleeWeapon(CommonLib::TESObjectWEAP* weapon, void* edx)
@@ -37,7 +37,7 @@ bool __fastcall Hook_IsMeleeWeapon(CommonLib::TESObjectWEAP* weapon, void* edx)
 	if (isBallisticMelee(weapon))
 		return false;
 
-	return weapon->data.eType <= 2;
+	return weapon->data.eType <= CommonLib::WEAPON_TYPE::WEAPON_TWO_HAND_MELEE;
 }
 
 CommonLib::Tile* __fastcall Hook_ObjectHit(CommonLib::Actor* actor, void* edx, bool abPowerAttack)
@@ -100,11 +100,11 @@ void __fastcall Hook_ReduceDamage(CommonLib::HitData* hitData, void* edx, bool a
 				apProjectileBase,
 				apShooter,
 				apFromWeapon,
-				&CommonLib::ZERO,
+				&CommonLib::NiPoint3::ZERO,
 				0.0,
 				0.0
 			);
-			projectile->cFormType = 0x33;
+			projectile->cFormType = CommonLib::ENUM_FORM_ID::PROJ_ID;
 			hitData->pSourceRef = projectile;
 		}
 	}

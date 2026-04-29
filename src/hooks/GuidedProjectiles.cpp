@@ -15,6 +15,11 @@
 #include "Bethesda/MoveData.hpp"
 #include "Bethesda/bhkCharacterStateProjectile.hpp"
 #include "Bethesda/VATS.hpp"
+#include "Bethesda/BGSProjectile.hpp"
+#include "Bethesda/ItemChange.hpp"
+#include "Bethesda/TESObjectWEAP.hpp"
+#include "Bethesda/TESObjectIMOD.hpp"
+#include "Bethesda/TESAmmo.hpp"
 #include "Gamebryo/NiCamera.hpp"
 #include "Gamebryo/NiPoint3.hpp"
 #include "Gamebryo/NiColorA.hpp"
@@ -30,35 +35,179 @@
 CallDetour GetCharacterStateDetour{};
 CallDetour SetLinearVelocityDetour{};
 CallDetour SyncWith3dRefDetour{};
+CallDetour ClearPostAnimationActionsDetour{};
 
-constexpr uint32_t Main_spWorldRoot_GetCamera_Address = 0x00524C90;
-constexpr uint32_t hkpWorld_castRay_Address = 0x00C92040;
-constexpr uint32_t bhkCharacterController_GetWorld_Address = 0x00621AD0;
-constexpr uint32_t bhkCharacterController_GetCollisionFilter_Address = 0x0070C440;
-constexpr uint32_t bhkCharacterController_FindBSReference_Address = 0x00C6DEC0;
-constexpr uint32_t TESObjectREFR_IsProjectile_Address = 0x005725B0;
-constexpr uint32_t bhkCharacterController_GetPosition_Address = 0x00C6E300;
-constexpr uint32_t TESObjectREFR_SetAngleOnReference_Address = 0x00575700;
-constexpr uint32_t TESObjectCELL_GetbhkWorld_Address = 0x004543C0;
-constexpr uint32_t hkpWorldRayCastInput_Constructor_Address = 0x004A3CC0;
-constexpr uint32_t hkpWorldRayCastOutput_Constructor_Address = 0x004A3D00;
+constexpr std::uint32_t Main_spWorldRoot_GetCamera_Address = 0x00524C90;
+constexpr std::uint32_t hkpWorld_castRay_Address = 0x00C92040;
+constexpr std::uint32_t bhkCharacterController_GetWorld_Address = 0x00621AD0;
+constexpr std::uint32_t bhkCharacterController_GetCollisionFilter_Address = 0x0070C440;
+constexpr std::uint32_t bhkCharacterController_FindBSReference_Address = 0x00C6DEC0;
+constexpr std::uint32_t TESObjectREFR_IsProjectile_Address = 0x005725B0;
+constexpr std::uint32_t bhkCharacterController_GetPosition_Address = 0x00C6E300;
+constexpr std::uint32_t TESObjectREFR_SetAngleOnReference_Address = 0x00575700;
+constexpr std::uint32_t TESObjectCELL_GetbhkWorld_Address = 0x004543C0;
+constexpr std::uint32_t hkpWorldRayCastInput_Constructor_Address = 0x004A3CC0;
+constexpr std::uint32_t hkpWorldRayCastOutput_Constructor_Address = 0x004A3D00;
+constexpr std::uint32_t TESForm_GetFormByEditorID_Address = 0x00483A00;
+constexpr std::uint32_t Process_GetCurrentWeapon_Addr = 0x008D81E0;
+constexpr std::uint32_t ItemChange_GetModSlots_Addr = 0x004BD820;
+constexpr std::uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
 
-constexpr uint32_t MakeLine_Address = 0x004B3890;
-constexpr uint32_t TES_AddTempDebugObject_Address = 0x00458E20;
+constexpr std::uint32_t MakeLine_Address = 0x004B3890;
+constexpr std::uint32_t TES_AddTempDebugObject_Address = 0x00458E20;
 
 constexpr bool bDebugRayCast = false;
 constexpr float fScale = 50000.0f;
 constexpr std::uint32_t iLayerLineOfSight = 37;
+
+constexpr const char* CONFIG_SECTION = "GuidedProjectiles";
+
+struct ConfigEntry {
+    std::uint32_t weaponId;
+    std::uint32_t weaponModId;
+    std::uint32_t ammoId;
+    std::uint32_t projectileId;
+};
+
+struct WeaponModIds {
+    std::uint32_t modSlot0;
+    std::uint32_t modSlot1;
+    std::uint32_t modSlot2;
+};
+
+static bool weaponModIdsMatch(WeaponModIds modIds, std::uint32_t modId) {
+    if (modIds.modSlot0 == modId || modIds.modSlot1 == modId || modIds.modSlot2 == modId) {
+        return true;
+    }
+
+    return false;
+}
+
+std::vector<ConfigEntry> entries;
+
+static bool operator==(const ConfigEntry& lhs, const ConfigEntry& rhs)
+{
+    return lhs.ammoId == rhs.ammoId && lhs.weaponModId == rhs.weaponModId && lhs.ammoId == rhs.ammoId && lhs.projectileId == rhs.projectileId;
+}
+
+CommonLib::TESForm* getFormFromConfigEntry(CSimpleIni::Entry& configEntry, const char* configKey) {
+    const char* configValue = Globals::g_Ini.GetValue(configEntry.pItem, configKey);
+    if (configValue) {
+        CommonLib::TESForm* form = CdeclCall<CommonLib::TESForm*>(TESForm_GetFormByEditorID_Address, configValue);
+        if (form) {
+            return form;
+        }
+        else {
+            Console_Print("ThatPlugin NVSE: Failed to resolve form for editor ID %s", configValue);
+        }
+    }
+
+    return nullptr;
+}
+
+/// <summary>
+/// Build configuration entries from editor IDs defined in INI file.
+/// </summary>
+void loadGuidedProjectilesConfig() {
+    CSimpleIni::TNamesDepend sections;
+    Globals::g_Ini.GetAllSections(sections);
+    for (CSimpleIni::Entry& element : sections) {
+        Console_Print(element.pItem);
+        if (!strncmp(element.pItem, CONFIG_SECTION, strlen(CONFIG_SECTION)) && strcmp(element.pItem, CONFIG_SECTION)) {
+            Console_Print("MATCH");
+            ConfigEntry newEntry{0,0,0,0};
+            CommonLib::TESForm* form;
+
+            form = getFormFromConfigEntry(element, "Weapon");
+            if (form) newEntry.weaponId = form->iFormID;
+
+            form = getFormFromConfigEntry(element, "Mod");
+            if (form) newEntry.weaponModId = form->iFormID;
+
+            form = getFormFromConfigEntry(element, "Ammo");
+            if (form) newEntry.ammoId = form->iFormID;
+
+            form = getFormFromConfigEntry(element, "Projectile");
+            if (form) newEntry.projectileId = form->iFormID;
+
+            if (newEntry.ammoId || newEntry.projectileId || newEntry.weaponId || newEntry.weaponModId) {
+                entries.push_back(newEntry);
+            }
+        }
+    }
+}
+
+
+static WeaponModIds getWeaponModIds(
+    CommonLib::TESObjectWEAP* apWeapon,
+    CommonLib::ItemChange* apItemChange)
+{
+    std::uint8_t modSlots =
+        ThisStdCall<std::uint8_t>(ItemChange_GetModSlots_Addr, apItemChange);
+
+    WeaponModIds modIds{ 0,0,0 };
+
+    CommonLib::TESObjectIMOD* mod = nullptr;
+
+    if (modSlots & 0x01)
+    {
+        mod = apWeapon->pModObjectOne;
+        if (mod) modIds.modSlot0 = mod->iFormID;
+    }
+
+    if (modSlots & 0x02)
+    {
+        mod = apWeapon->pModObjectTwo;
+        if (mod) modIds.modSlot1 = mod->iFormID;
+    }
+
+    if (modSlots & 0x04)
+    {
+        mod = apWeapon->pModObjectThree;
+        if (mod) modIds.modSlot2 = mod->iFormID;
+    }
+
+    return modIds;
+}
 
 /// <summary>
 /// Determines if the projectile should be guided.
 /// </summary>
 /// <param name="apProjectile"></param>
 /// <returns></returns>
-bool isProjectileGuided(CommonLib::Projectile* apProjectile) {
-    CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacterGetSingleton();
+static bool isProjectileGuided(CommonLib::Projectile* apProjectile) {
+    CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
     if (apProjectile && apProjectile->pShooter == pPlayer) {
-        return true;
+        std::uint32_t projectileId = 0;
+        std::uint32_t weaponId = 0;
+        std::uint32_t ammoId = 0;
+        WeaponModIds modIds{ 0,0,0 };
+        CommonLib::BGSProjectile* projectileBase = static_cast<CommonLib::BGSProjectile*>(apProjectile->data.pObjectReference);
+        if (projectileBase) {
+            projectileId = projectileBase->iFormID;
+        }
+        CommonLib::ItemChange* weaponItemChange = ThisStdCall<CommonLib::ItemChange*>(Process_GetCurrentWeapon_Addr, pPlayer->pCurrentProcess);
+        if (weaponItemChange) {
+            CommonLib::TESObjectWEAP* weaponBase = static_cast<CommonLib::TESObjectWEAP*>(weaponItemChange->pContainerObj);
+            if (weaponBase) {
+                weaponId = weaponBase->iFormID;
+                modIds = getWeaponModIds(weaponBase, weaponItemChange);
+                CommonLib::TESAmmo* currentAmmo = ThisStdCall<CommonLib::TESAmmo*>(TESObjectWEAP_GetCurrentAmmo_Addr, weaponBase, pPlayer);
+                if (currentAmmo) {
+                    ammoId = currentAmmo->iFormID;
+                }
+            }
+        }
+
+        for (ConfigEntry& entry : entries) {
+            if ((!entry.projectileId || entry.projectileId == projectileId) &&
+                (!entry.weaponId || entry.weaponId == weaponId) &&
+                (!entry.ammoId || entry.ammoId == ammoId) &&
+                weaponModIdsMatch(modIds, entry.weaponModId)) {
+                
+                return true;
+            }
+        }
     }
 
     return false;
@@ -92,8 +241,8 @@ void getCameraRayCastOutput(
     apInput->m_to = CommonLib::hkVector4::fromPoint(niEnd);
     apInput->m_filterInfo = (filter.iFilter & 0xFFFFFF80) | iLayerLineOfSight;
 
-    CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacterGetSingleton();
-    CommonLib::VATS* pVats = CommonLib::VATSGetSingleton();
+    CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+    CommonLib::VATS* pVats = CommonLib::VATS::GetVATSSingleton();
 
     CommonLib::TESObjectCELL* parentCell = pPlayer->pParentCell;
 
@@ -103,16 +252,19 @@ void getCameraRayCastOutput(
     ThisStdCall<void>(hkpWorld_castRay_Address, pHkpWorld, apInput, apResult);
 }
 
-
+/// <summary>
+/// Check if the player camera is in reasonable state to perform ray cast.
+/// </summary>
+/// <returns></returns>
 bool isCameraReady() {
-    CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacterGetSingleton();
-    CommonLib::VATS* pVats = CommonLib::VATSGetSingleton();
+    CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+    CommonLib::VATS* pVats = CommonLib::VATS::GetVATSSingleton();
 
     return pVats->eMode == CommonLib::VATS::VATS_MODE_NONE && pPlayer->fTimeInSlowMoCam <= 0.0f && !CommonLib::IsVanityMode();
 }
 
 
-void debugRayCast(CommonLib::hkVector4 projectileLocation, CommonLib::hkVector4 hitPoint) {
+static void debugRayCast(CommonLib::hkVector4 projectileLocation, CommonLib::hkVector4 hitPoint) {
     const CommonLib::NiColorA color{ 0.0f, 1.0f, 0.0f, 1.0f };
     CommonLib::NiPoint3 niLoc{
         projectileLocation.m_quad.m128_f32[0] * CommonLib::fHk2BSScaleSC_639,
@@ -130,7 +282,7 @@ void debugRayCast(CommonLib::hkVector4 projectileLocation, CommonLib::hkVector4 
 }
 
 
-void printVector(const CommonLib::hkVector4 vec, const char* name) {
+static void printVector(const CommonLib::hkVector4 vec, const char* name) {
     Console_Print(
         "%s %.6f %.6f %.6f %.6f",
         name,
@@ -141,7 +293,7 @@ void printVector(const CommonLib::hkVector4 vec, const char* name) {
     );
 }
 
-void printPoint(const CommonLib::NiPoint3 vec, const char* name) {
+static void printPoint(const CommonLib::NiPoint3 vec, const char* name) {
     Console_Print(
         "%s %.6f %.6f %.6f",
         name,
@@ -157,7 +309,7 @@ void printPoint(const CommonLib::NiPoint3 vec, const char* name) {
 /// </summary>
 /// <param name="apCharacterController"></param>
 /// <returns></returns>
-CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_GetCharacterState(CommonLib::bhkCharacterController* apCharacterController)
+CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_GetCharacterState(CommonLib::bhkCharacterController* apCharacterController, void* edx)
 {
     CommonLib::TESObjectREFR* bsRef = nullptr;
     CommonLib::bhkShapePhantom* shapePhantom = apCharacterController->spShapePhantom.m_pObject;
@@ -265,15 +417,24 @@ void __fastcall Hook_bhkCharacterController_SetLinearVelocity(CommonLib::bhkChar
 /// <param name="abSyncRotation"></param>
 /// <param name="abDoArcReorientation"></param>
 /// <returns></returns>
-bool __fastcall Hook_Projectile_Sync3DWithReference(CommonLib::Projectile* apProjectile, bool abSyncRotation, bool abDoArcReorientation)
+bool __fastcall Hook_Projectile_Sync3DWithReference(CommonLib::Projectile* apProjectile, void* edx, bool abSyncRotation, bool abDoArcReorientation)
 {
     abSyncRotation = isProjectileGuided(apProjectile) && isCameraReady() ? true : abSyncRotation;
     return ThisStdCall<bool>(SyncWith3dRefDetour.GetOverwrittenAddr(), apProjectile, abSyncRotation, abDoArcReorientation);
 }
 
 
+void __fastcall Hook_Actor_ClearPostAnimationActions(CommonLib::Actor* apActor, void* edx)
+{
+    ThisStdCall<void>(ClearPostAnimationActionsDetour.GetOverwrittenAddr(), apActor);
+}
+
+
 void installGuidedProjectilesHook() {
-	GetCharacterStateDetour.WriteRelCall(0x00C737DD, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_GetCharacterState));
-    SetLinearVelocityDetour.WriteRelCall(0x00C73821, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_SetLinearVelocity));
-    SyncWith3dRefDetour.WriteRelCall(0x009B8552, reinterpret_cast<std::uint32_t>(&Hook_Projectile_Sync3DWithReference));
+    if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bEnabled")) {
+        GetCharacterStateDetour.WriteRelCall(0x00C737DD, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_GetCharacterState));
+        SetLinearVelocityDetour.WriteRelCall(0x00C73821, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_SetLinearVelocity));
+        SyncWith3dRefDetour.WriteRelCall(0x009B8552, reinterpret_cast<std::uint32_t>(&Hook_Projectile_Sync3DWithReference));
+        ClearPostAnimationActionsDetour.WriteRelCall(0x0088C872, reinterpret_cast<std::uint32_t>(&Hook_Actor_ClearPostAnimationActions));
+    }
 }
