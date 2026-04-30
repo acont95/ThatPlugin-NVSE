@@ -1,4 +1,5 @@
 #include <cmath>
+#include <optional>
 #include "GuidedProjectiles.hpp"
 #include "Globals.hpp"
 #include "nvse/PluginAPI.h"
@@ -35,7 +36,8 @@
 CallDetour GetCharacterStateDetour{};
 CallDetour SetLinearVelocityDetour{};
 CallDetour SyncWith3dRefDetour{};
-CallDetour ClearPostAnimationActionsDetour{};
+CallDetour EquipClearPostAnimationActionsDetour{};
+CallDetour UnequipClearPostAnimationActionsDetour{};
 
 constexpr std::uint32_t Main_spWorldRoot_GetCamera_Address = 0x00524C90;
 constexpr std::uint32_t hkpWorld_castRay_Address = 0x00C92040;
@@ -52,21 +54,23 @@ constexpr std::uint32_t TESForm_GetFormByEditorID_Address = 0x00483A00;
 constexpr std::uint32_t Process_GetCurrentWeapon_Addr = 0x008D81E0;
 constexpr std::uint32_t ItemChange_GetModSlots_Addr = 0x004BD820;
 constexpr std::uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
+constexpr std::uint32_t TESObjectWEAP_GetProjectile_Addr = 0x00525A90;
+constexpr std::uint32_t Actor_IsWeaponDrawn_Addr = 0x008A16D0;
+constexpr std::uint32_t Projectile_Kill_Addr = 0x009BC8F0;
 
 constexpr std::uint32_t MakeLine_Address = 0x004B3890;
 constexpr std::uint32_t TES_AddTempDebugObject_Address = 0x00458E20;
 
 constexpr bool bDebugRayCast = false;
-constexpr float fScale = 50000.0f;
-constexpr std::uint32_t iLayerLineOfSight = 37;
 
-constexpr const char* CONFIG_SECTION = "GuidedProjectiles";
+constexpr char CONFIG_SECTION[] = "GuidedProjectiles";
 
 struct ConfigEntry {
-    std::uint32_t weaponId;
-    std::uint32_t weaponModId;
-    std::uint32_t ammoId;
-    std::uint32_t projectileId;
+    std::uint32_t weaponId = 0;
+    std::uint32_t weaponModId = 0;
+    std::uint32_t ammoId = 0;
+    std::uint32_t projectileId = 0;
+    float fRayCastRange = 10000.0f;
 };
 
 struct WeaponModIds {
@@ -75,6 +79,17 @@ struct WeaponModIds {
     std::uint32_t modSlot2;
 };
 
+static std::vector<ConfigEntry> configEntries;
+static std::optional<ConfigEntry> currentConfig = std::nullopt;
+static const ConfigEntry defaultConfig{};
+
+
+/// <summary>
+/// Check if the give form ID matches any of the weapons equipped mods.
+/// </summary>
+/// <param name="modIds"></param>
+/// <param name="modId"></param>
+/// <returns></returns>
 static bool weaponModIdsMatch(WeaponModIds modIds, std::uint32_t modId) {
     if (modIds.modSlot0 == modId || modIds.modSlot1 == modId || modIds.modSlot2 == modId) {
         return true;
@@ -83,14 +98,14 @@ static bool weaponModIdsMatch(WeaponModIds modIds, std::uint32_t modId) {
     return false;
 }
 
-std::vector<ConfigEntry> entries;
 
-static bool operator==(const ConfigEntry& lhs, const ConfigEntry& rhs)
-{
-    return lhs.ammoId == rhs.ammoId && lhs.weaponModId == rhs.weaponModId && lhs.ammoId == rhs.ammoId && lhs.projectileId == rhs.projectileId;
-}
-
-CommonLib::TESForm* getFormFromConfigEntry(CSimpleIni::Entry& configEntry, const char* configKey) {
+/// <summary>
+/// Get the TESForm object from configuration editor ID.
+/// </summary>
+/// <param name="configEntry"></param>
+/// <param name="configKey"></param>
+/// <returns></returns>
+static CommonLib::TESForm* getFormFromConfigEntry(CSimpleIni::Entry& configEntry, const char* configKey) {
     const char* configValue = Globals::g_Ini.GetValue(configEntry.pItem, configKey);
     if (configValue) {
         CommonLib::TESForm* form = CdeclCall<CommonLib::TESForm*>(TESForm_GetFormByEditorID_Address, configValue);
@@ -118,26 +133,37 @@ void loadGuidedProjectilesConfig() {
             ConfigEntry newEntry{0,0,0,0};
             CommonLib::TESForm* form;
 
-            form = getFormFromConfigEntry(element, "Weapon");
+            form = getFormFromConfigEntry(element, "sWeapon");
             if (form) newEntry.weaponId = form->iFormID;
 
-            form = getFormFromConfigEntry(element, "Mod");
+            form = getFormFromConfigEntry(element, "sWeaponMod");
             if (form) newEntry.weaponModId = form->iFormID;
 
-            form = getFormFromConfigEntry(element, "Ammo");
+            form = getFormFromConfigEntry(element, "sAmmo");
             if (form) newEntry.ammoId = form->iFormID;
 
-            form = getFormFromConfigEntry(element, "Projectile");
+            form = getFormFromConfigEntry(element, "sProjectile");
             if (form) newEntry.projectileId = form->iFormID;
 
+            float fRayCastRange = Globals::g_Ini.GetDoubleValue(element.pItem, "fRayCastRange");
+            if (fRayCastRange > 0.0f) {
+                newEntry.fRayCastRange = fRayCastRange;
+            }
+
             if (newEntry.ammoId || newEntry.projectileId || newEntry.weaponId || newEntry.weaponModId) {
-                entries.push_back(newEntry);
+                configEntries.push_back(newEntry);
             }
         }
     }
 }
 
 
+/// <summary>
+/// Get the equipped weapon mods.
+/// </summary>
+/// <param name="apWeapon"></param>
+/// <param name="apItemChange"></param>
+/// <returns></returns>
 static WeaponModIds getWeaponModIds(
     CommonLib::TESObjectWEAP* apWeapon,
     CommonLib::ItemChange* apItemChange)
@@ -175,42 +201,40 @@ static WeaponModIds getWeaponModIds(
 /// </summary>
 /// <param name="apProjectile"></param>
 /// <returns></returns>
-static bool isProjectileGuided(CommonLib::Projectile* apProjectile) {
+static std::optional<ConfigEntry> getMatchingConfigEntry() {
     CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
-    if (apProjectile && apProjectile->pShooter == pPlayer) {
-        std::uint32_t projectileId = 0;
-        std::uint32_t weaponId = 0;
-        std::uint32_t ammoId = 0;
-        WeaponModIds modIds{ 0,0,0 };
-        CommonLib::BGSProjectile* projectileBase = static_cast<CommonLib::BGSProjectile*>(apProjectile->data.pObjectReference);
-        if (projectileBase) {
-            projectileId = projectileBase->iFormID;
-        }
-        CommonLib::ItemChange* weaponItemChange = ThisStdCall<CommonLib::ItemChange*>(Process_GetCurrentWeapon_Addr, pPlayer->pCurrentProcess);
-        if (weaponItemChange) {
-            CommonLib::TESObjectWEAP* weaponBase = static_cast<CommonLib::TESObjectWEAP*>(weaponItemChange->pContainerObj);
-            if (weaponBase) {
+    CommonLib::ItemChange* weaponItemChange = ThisStdCall<CommonLib::ItemChange*>(Process_GetCurrentWeapon_Addr, pPlayer->pCurrentProcess);
+
+    if (weaponItemChange) {
+        CommonLib::TESObjectWEAP* weaponBase = static_cast<CommonLib::TESObjectWEAP*>(weaponItemChange->pContainerObj);
+        if (weaponBase) {
+            CommonLib::BGSProjectile* projectileBase = ThisStdCall<CommonLib::BGSProjectile*>(TESObjectWEAP_GetProjectile_Addr, weaponBase, pPlayer);
+            CommonLib::TESAmmo* currentAmmo = ThisStdCall<CommonLib::TESAmmo*>(TESObjectWEAP_GetCurrentAmmo_Addr, weaponBase, pPlayer);
+            if (projectileBase && currentAmmo) {
+                std::uint32_t projectileId = 0;
+                std::uint32_t weaponId = 0;
+                std::uint32_t ammoId = 0;
+                WeaponModIds modIds{ 0,0,0 };
+
+                projectileId = projectileBase->iFormID;
                 weaponId = weaponBase->iFormID;
                 modIds = getWeaponModIds(weaponBase, weaponItemChange);
-                CommonLib::TESAmmo* currentAmmo = ThisStdCall<CommonLib::TESAmmo*>(TESObjectWEAP_GetCurrentAmmo_Addr, weaponBase, pPlayer);
-                if (currentAmmo) {
-                    ammoId = currentAmmo->iFormID;
-                }
-            }
-        }
+                ammoId = currentAmmo->iFormID;
 
-        for (ConfigEntry& entry : entries) {
-            if ((!entry.projectileId || entry.projectileId == projectileId) &&
-                (!entry.weaponId || entry.weaponId == weaponId) &&
-                (!entry.ammoId || entry.ammoId == ammoId) &&
-                weaponModIdsMatch(modIds, entry.weaponModId)) {
-                
-                return true;
+                for (ConfigEntry& entry : configEntries) {
+                    if ((!entry.projectileId || entry.projectileId == projectileId) &&
+                        (!entry.weaponId || entry.weaponId == weaponId) &&
+                        (!entry.ammoId || entry.ammoId == ammoId) &&
+                        weaponModIdsMatch(modIds, entry.weaponModId)) {
+
+                        return entry;
+                    }
+                }
             }
         }
     }
 
-    return false;
+    return std::nullopt;
 }
 
 /// <summary>
@@ -221,17 +245,18 @@ static bool isProjectileGuided(CommonLib::Projectile* apProjectile) {
 /// <param name="apCharacterController"></param>
 /// <param name="apInput"></param>
 /// <param name="apResult"></param>
-void getCameraRayCastOutput(
+static void getCameraRayCastOutput(
     CommonLib::bhkCharacterController* apCharacterController, 
     CommonLib::hkpWorldRayCastInput* apInput, 
     CommonLib::hkpWorldRayCastOutput* apResult
 ) {
     CommonLib::NiCamera* camera = CdeclCall<CommonLib::NiCamera*>(Main_spWorldRoot_GetCamera_Address);
     const CommonLib::NiPoint3 niStart = camera->m_kWorld.m_Translate;
+    float rayCastRange = currentConfig.value_or(defaultConfig).fRayCastRange;
     CommonLib::NiPoint3 niEnd{
-        niStart.x + camera->m_kWorld.m_Rotate.m_pEntry[0].x * fScale,
-        niStart.y + camera->m_kWorld.m_Rotate.m_pEntry[1].x * fScale,
-        niStart.z + camera->m_kWorld.m_Rotate.m_pEntry[2].x * fScale
+        niStart.x + camera->m_kWorld.m_Rotate.m_pEntry[0].x * rayCastRange,
+        niStart.y + camera->m_kWorld.m_Rotate.m_pEntry[1].x * rayCastRange,
+        niStart.z + camera->m_kWorld.m_Rotate.m_pEntry[2].x * rayCastRange
     };
 
     CommonLib::CFilter filter = CommonLib::CFilter{ 0 };
@@ -239,7 +264,7 @@ void getCameraRayCastOutput(
 
     apInput->m_from = CommonLib::hkVector4::fromPoint(niStart);
     apInput->m_to = CommonLib::hkVector4::fromPoint(niEnd);
-    apInput->m_filterInfo = (filter.iFilter & 0xFFFFFF80) | iLayerLineOfSight;
+    apInput->m_filterInfo = (filter.iFilter & 0xFFFFFF80) | CommonLib::COL_LAYER::L_LOS;
 
     CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
     CommonLib::VATS* pVats = CommonLib::VATS::GetVATSSingleton();
@@ -256,7 +281,7 @@ void getCameraRayCastOutput(
 /// Check if the player camera is in reasonable state to perform ray cast.
 /// </summary>
 /// <returns></returns>
-bool isCameraReady() {
+static bool isCameraReady() {
     CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
     CommonLib::VATS* pVats = CommonLib::VATS::GetVATSSingleton();
 
@@ -311,30 +336,30 @@ static void printPoint(const CommonLib::NiPoint3 vec, const char* name) {
 /// <returns></returns>
 CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_GetCharacterState(CommonLib::bhkCharacterController* apCharacterController, void* edx)
 {
-    CommonLib::TESObjectREFR* bsRef = nullptr;
-    CommonLib::bhkShapePhantom* shapePhantom = apCharacterController->spShapePhantom.m_pObject;
-    if (shapePhantom) {
-        CommonLib::hkReferencedObject* referencedObject = shapePhantom->phkObject;
-        if (referencedObject) {
-            bsRef = CdeclCall<CommonLib::TESObjectREFR*>(
-                bhkCharacterController_FindBSReference_Address,
-                CommonLib::bhkCharacterController::REFERENCE_SLOTS::MOBOBJECT,
-                referencedObject
-            );
+    CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+    if (currentConfig && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && isCameraReady()) {
+        CommonLib::TESObjectREFR* bsRef = nullptr;
+        CommonLib::bhkShapePhantom* shapePhantom = apCharacterController->spShapePhantom.m_pObject;
+        if (shapePhantom) {
+            CommonLib::hkReferencedObject* referencedObject = shapePhantom->phkObject;
+            if (referencedObject) {
+                bsRef = CdeclCall<CommonLib::TESObjectREFR*>(
+                    bhkCharacterController_FindBSReference_Address,
+                    CommonLib::bhkCharacterController::REFERENCE_SLOTS::MOBOBJECT,
+                    referencedObject
+                );
+            }
         }
-    }
 
-    if (bsRef && ThisStdCall<bool>(TESObjectREFR_IsProjectile_Address, bsRef) && isCameraReady()) {
-        CommonLib::Projectile* projectile = static_cast<CommonLib::Projectile*>(bsRef);
+        if (bsRef && ThisStdCall<bool>(TESObjectREFR_IsProjectile_Address, bsRef)) {
+            CommonLib::Projectile* projectile = static_cast<CommonLib::Projectile*>(bsRef);
 
-        if (isProjectileGuided(projectile)) {
             CommonLib::hkVector4 projectileLocation{};
             ThisStdCall<void>(bhkCharacterController_GetPosition_Address, apCharacterController, &projectileLocation);
 
             CommonLib::hkpWorldRayCastInput* rayCastInput = New<CommonLib::hkpWorldRayCastInput, hkpWorldRayCastInput_Constructor_Address>();
             CommonLib::hkpWorldRayCastOutput* rayCastOutput = New<CommonLib::hkpWorldRayCastOutput, hkpWorldRayCastOutput_Constructor_Address>();
             getCameraRayCastOutput(apCharacterController, rayCastInput, rayCastOutput);
-
 
             CommonLib::hkVector4 hitPoint = rayCastInput->m_from + (rayCastInput->m_to - rayCastInput->m_from) * rayCastOutput->m_hitFraction;
 
@@ -365,6 +390,11 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
             if (localVelocityNew.isOk3().m_bool) {
                 apCharacterController->Direction = localVelocityNew;
             }
+
+            // If projectile reaches ray cast point, kill to prevent erratic behavior
+            if (std::abs((rayCastInput->m_to - projectileLocation).length3()) < 5.0f) {
+                ThisStdCall<void>(Projectile_Kill_Addr, projectile);
+            }
         }
     }
 
@@ -381,24 +411,25 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
 /// <returns></returns>
 void __fastcall Hook_bhkCharacterController_SetLinearVelocity(CommonLib::bhkCharacterController* apCharacterController, void* edx, CommonLib::hkVector4* vel)
 {
-    CommonLib::bhkShapePhantom* shapePhantom = apCharacterController->spShapePhantom.m_pObject;
-    CommonLib::hkReferencedObject* referencedObject = shapePhantom->phkObject;
-    CommonLib::TESObjectREFR* bsRef = CdeclCall<CommonLib::TESObjectREFR*>(
-        bhkCharacterController_FindBSReference_Address,
-        CommonLib::bhkCharacterController::REFERENCE_SLOTS::MOBOBJECT,
-        referencedObject
-    );
+    CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+    if (currentConfig && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && isCameraReady()) {
+        CommonLib::bhkShapePhantom* shapePhantom = apCharacterController->spShapePhantom.m_pObject;
+        CommonLib::hkReferencedObject* referencedObject = shapePhantom->phkObject;
+        CommonLib::TESObjectREFR* bsRef = CdeclCall<CommonLib::TESObjectREFR*>(
+            bhkCharacterController_FindBSReference_Address,
+            CommonLib::bhkCharacterController::REFERENCE_SLOTS::MOBOBJECT,
+            referencedObject
+        );
 
-    if (bsRef && ThisStdCall<bool>(TESObjectREFR_IsProjectile_Address, bsRef) && isCameraReady()) {
-        CommonLib::Projectile* projectile = static_cast<CommonLib::Projectile*>(bsRef);
-        if (isProjectileGuided(projectile)) {
+        if (bsRef && ThisStdCall<bool>(TESObjectREFR_IsProjectile_Address, bsRef)) {
+            CommonLib::Projectile* projectile = static_cast<CommonLib::Projectile*>(bsRef);
             CommonLib::NiPoint3 up3d = CommonLib::NiPoint3::UNIT_Z;
             CommonLib::NiPoint3 directionForward{ vel->m_quad.m128_f32[0], vel->m_quad.m128_f32[1] , vel->m_quad.m128_f32[2] };
             CommonLib::NiPoint3 directionRight = directionForward.UnitCross(up3d);
             CommonLib::NiPoint3 directionUp = directionForward.UnitCross(directionRight);
             directionForward.Unitize();
 
-            CommonLib::NiMatrix3 rotationNew3d{directionRight, directionForward, directionUp};
+            CommonLib::NiMatrix3 rotationNew3d{ directionRight, directionForward, directionUp };
             rotationNew3d = rotationNew3d.Transpose();
 
             CommonLib::NiPoint3 newReferenceAngle{};
@@ -419,14 +450,22 @@ void __fastcall Hook_bhkCharacterController_SetLinearVelocity(CommonLib::bhkChar
 /// <returns></returns>
 bool __fastcall Hook_Projectile_Sync3DWithReference(CommonLib::Projectile* apProjectile, void* edx, bool abSyncRotation, bool abDoArcReorientation)
 {
-    abSyncRotation = isProjectileGuided(apProjectile) && isCameraReady() ? true : abSyncRotation;
+    CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+    abSyncRotation = currentConfig && isCameraReady() && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) ? true : abSyncRotation;
     return ThisStdCall<bool>(SyncWith3dRefDetour.GetOverwrittenAddr(), apProjectile, abSyncRotation, abDoArcReorientation);
 }
 
-
+/// <summary>
+/// Hook call inside Actor::EquipObejct to trigger checking configuration on current equipment.
+/// This call is hooked to avoid conflicts with hooking EquipObject function itself.
+/// </summary>
+/// <param name="apActor"></param>
+/// <param name="edx"></param>
+/// <returns></returns>
 void __fastcall Hook_Actor_ClearPostAnimationActions(CommonLib::Actor* apActor, void* edx)
 {
-    ThisStdCall<void>(ClearPostAnimationActionsDetour.GetOverwrittenAddr(), apActor);
+    currentConfig = getMatchingConfigEntry();
+    ThisStdCall<void>(EquipClearPostAnimationActionsDetour.GetOverwrittenAddr(), apActor);
 }
 
 
@@ -435,6 +474,7 @@ void installGuidedProjectilesHook() {
         GetCharacterStateDetour.WriteRelCall(0x00C737DD, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_GetCharacterState));
         SetLinearVelocityDetour.WriteRelCall(0x00C73821, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_SetLinearVelocity));
         SyncWith3dRefDetour.WriteRelCall(0x009B8552, reinterpret_cast<std::uint32_t>(&Hook_Projectile_Sync3DWithReference));
-        ClearPostAnimationActionsDetour.WriteRelCall(0x0088C872, reinterpret_cast<std::uint32_t>(&Hook_Actor_ClearPostAnimationActions));
+        EquipClearPostAnimationActionsDetour.WriteRelCall(0x0088C872, reinterpret_cast<std::uint32_t>(&Hook_Actor_ClearPostAnimationActions));
+        UnequipClearPostAnimationActionsDetour.WriteRelCall(0x0088D7FF, reinterpret_cast<std::uint32_t>(&Hook_Actor_ClearPostAnimationActions));
     }
 }
