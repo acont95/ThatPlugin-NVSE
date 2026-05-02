@@ -16,7 +16,7 @@
 #include "BallisticMelee.hpp"
 #include "Globals.hpp"
 
-constexpr const char* CONFIG_SECTION = "BallisticMelee";
+constexpr char CONFIG_SECTION[] = "BallisticMelee";
 
 CallDetour ObjectHitDetour{};
 CallDetour CombatHitDetour{};
@@ -27,6 +27,7 @@ constexpr std::uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
 constexpr std::uint32_t Actor_ShouldUseAmmo_Addr = 0x008A8DD0;
 constexpr std::uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
 constexpr std::uint32_t Projectile_Constructor_Addr = 0x009BBEF0;
+constexpr std::uint32_t TESForm_SetTemporary_Addr = 0x00484490;
 
 bool isBallisticMelee(CommonLib::TESObjectWEAP* weapon) {
 	return weapon->data.eType <= CommonLib::WEAPON_TYPE::WEAPON_TWO_HAND_MELEE && weapon->pFormAmmo;
@@ -100,18 +101,21 @@ void __fastcall Hook_ReduceDamage(CommonLib::HitData* hitData, void* edx, bool a
 				apProjectileBase,
 				apShooter,
 				apFromWeapon,
-				&CommonLib::NiPoint3::ZERO,
+				&apShooter->data.Location, // Set projectile location to aggressor location for blocking calculations
 				0.0,
 				0.0
 			);
 			projectile->cFormType = CommonLib::ENUM_FORM_ID::PROJ_ID;
+			// Set the refrenece as temporary to avoid crashing when saving base projectile
+			ThisStdCall<void>(TESForm_SetTemporary_Addr, projectile);
+			
+			// Set projectile on HitData for JIP compatability, needed for ammo scripts and effects to work
 			hitData->pSourceRef = projectile;
 		}
 	}
 
 	ThisStdCall<void>(ReduceDamageDetour.GetOverwrittenAddr(), hitData, abIgnoreBlocking);
 }
-
 
 void installBallisticMeleeHooks() {
 	if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bEnabled")) {
@@ -131,5 +135,8 @@ void installBallisticMeleeHooks() {
 
 		// Hook HitData::ReduceDamage in HitData::InitializeHitData
 		ReduceDamageDetour.WriteRelCall(0x009B5623, reinterpret_cast<std::uint32_t>(&Hook_ReduceDamage));
+
+		// Hook TESObjectWEAP::IsMeleeWeapon call in HitData::ReduceDamage
+		WriteRelCall(0x009B5F81, reinterpret_cast<std::uint32_t>(&Hook_IsMeleeWeapon));
 	}
 }
