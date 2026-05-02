@@ -51,6 +51,7 @@ constexpr std::uint32_t TESObjectCELL_GetbhkWorld_Address = 0x004543C0;
 constexpr std::uint32_t hkpWorldRayCastInput_Constructor_Address = 0x004A3CC0;
 constexpr std::uint32_t hkpWorldRayCastOutput_Constructor_Address = 0x004A3D00;
 constexpr std::uint32_t TESForm_GetFormByEditorID_Address = 0x00483A00;
+constexpr std::uint32_t TESForm_GetFormByNumericID_Address = 0x004839C0;
 constexpr std::uint32_t Process_GetCurrentWeapon_Addr = 0x008D81E0;
 constexpr std::uint32_t ItemChange_GetModSlots_Addr = 0x004BD820;
 constexpr std::uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
@@ -106,15 +107,27 @@ static bool weaponModIdsMatch(WeaponModIds modIds, std::uint32_t modId) {
 /// <param name="configKey"></param>
 /// <returns></returns>
 static CommonLib::TESForm* getFormFromConfigEntry(CSimpleIni::Entry& configEntry, const char* configKey) {
-    const char* configValue = Globals::g_Ini.GetValue(configEntry.pItem, configKey);
-    if (configValue) {
-        CommonLib::TESForm* form = CdeclCall<CommonLib::TESForm*>(TESForm_GetFormByEditorID_Address, configValue);
+    const char* configStrVal = Globals::g_Ini.GetValue(configEntry.pItem, configKey);
+    const long configLongVal = Globals::g_Ini.GetLongValue(configEntry.pItem, configKey);
+
+    
+    if (configStrVal) {
+        CommonLib::TESForm* form = CdeclCall<CommonLib::TESForm*>(TESForm_GetFormByEditorID_Address, configStrVal);
         if (form) {
             return form;
         }
-        else {
-            Console_Print("ThatPlugin NVSE: Failed to resolve form for editor ID %s", configValue);
+    }
+
+    if (configLongVal) {
+        std::uint32_t formId = static_cast<std::uint32_t>(configLongVal);
+        CommonLib::TESForm* form = CdeclCall<CommonLib::TESForm*>(TESForm_GetFormByNumericID_Address, formId);
+        if (form) {
+            return form;
         }
+    }
+
+    if (configStrVal || configLongVal) {
+        Console_Print("ThatPlugin NVSE: Failed to resolve form for key %s in section %s", configKey, configEntry.pItem);
     }
 
     return nullptr;
@@ -126,10 +139,9 @@ static CommonLib::TESForm* getFormFromConfigEntry(CSimpleIni::Entry& configEntry
 void loadGuidedProjectilesConfig() {
     CSimpleIni::TNamesDepend sections;
     Globals::g_Ini.GetAllSections(sections);
+    Console_Print("HELLO?");
     for (CSimpleIni::Entry& element : sections) {
-        Console_Print(element.pItem);
         if (!strncmp(element.pItem, CONFIG_SECTION, strlen(CONFIG_SECTION)) && strcmp(element.pItem, CONFIG_SECTION)) {
-            Console_Print("MATCH");
             ConfigEntry newEntry{0,0,0,0};
             CommonLib::TESForm* form;
 
