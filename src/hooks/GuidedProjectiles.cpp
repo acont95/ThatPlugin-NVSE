@@ -139,10 +139,9 @@ static CommonLib::TESForm* getFormFromConfigEntry(CSimpleIni::Entry& configEntry
 void loadGuidedProjectilesConfig() {
     CSimpleIni::TNamesDepend sections;
     Globals::g_Ini.GetAllSections(sections);
-    Console_Print("HELLO?");
     for (CSimpleIni::Entry& element : sections) {
         if (!strncmp(element.pItem, CONFIG_SECTION, strlen(CONFIG_SECTION)) && strcmp(element.pItem, CONFIG_SECTION)) {
-            ConfigEntry newEntry{0,0,0,0};
+            ConfigEntry newEntry{};
             CommonLib::TESForm* form;
 
             form = getFormFromConfigEntry(element, "sWeapon");
@@ -297,7 +296,7 @@ static bool isCameraReady() {
     CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
     CommonLib::VATS* pVats = CommonLib::VATS::GetVATSSingleton();
 
-    return pVats->eMode == CommonLib::VATS::VATS_MODE_NONE && pPlayer->fTimeInSlowMoCam <= 0.0f && !CommonLib::IsVanityMode();
+    return pVats->eMode == CommonLib::VATS::VATS_MODE_NONE && pPlayer->fTimeInSlowMoCam <= 0.0f && !IsVanityMode();
 }
 
 

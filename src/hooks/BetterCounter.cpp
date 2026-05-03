@@ -6,17 +6,9 @@
 #include "nvse/PluginAPI.h"
 #include "nvse/SafeWrite.h"
 #include "nvse/GameRTTI.h"
-#include "Bethesda/Actor.hpp"
-#include "Bethesda/HitData.hpp"
-#include "Bethesda/TESAmmo.hpp"
 #include "Bethesda/TESObjectWEAP.hpp"
-#include "Bethesda/Projectile.hpp"
-#include "Bethesda/Tile.hpp"
 #include "Bethesda/PlayerCharacter.hpp"
-#include "Bethesda/BaseProcess.hpp"
-#include "Bethesda/InventoryChanges.hpp"
 #include "Bethesda/ItemChange.hpp"
-#include "Gamebryo/NiPoint3.hpp"
 #include "Globals.hpp"
 
 constexpr char CONFIG_SECTION[] = "BetterCounter";
