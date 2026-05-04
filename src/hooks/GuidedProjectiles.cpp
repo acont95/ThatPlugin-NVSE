@@ -66,14 +66,6 @@ constexpr bool bDebugRayCast = false;
 
 constexpr char CONFIG_SECTION[] = "GuidedProjectiles";
 
-struct ConfigEntry {
-    std::uint32_t weaponId = 0;
-    std::uint32_t weaponModId = 0;
-    std::uint32_t ammoId = 0;
-    std::uint32_t projectileId = 0;
-    float fRayCastRange = 10000.0f;
-};
-
 struct WeaponModIds {
     std::uint32_t modSlot0;
     std::uint32_t modSlot1;
@@ -81,7 +73,7 @@ struct WeaponModIds {
 };
 
 static std::vector<ConfigEntry> configEntries;
-static std::optional<ConfigEntry> currentConfig = std::nullopt;
+std::optional<ConfigEntry> currentGuidedProjConfig = std::nullopt;
 static const ConfigEntry defaultConfig{};
 
 
@@ -212,7 +204,7 @@ static WeaponModIds getWeaponModIds(
 /// </summary>
 /// <param name="apProjectile"></param>
 /// <returns></returns>
-static std::optional<ConfigEntry> getMatchingConfigEntry() {
+std::optional<ConfigEntry> getMatchingConfigEntry() {
     CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
     CommonLib::ItemChange* weaponItemChange = ThisStdCall<CommonLib::ItemChange*>(Process_GetCurrentWeapon_Addr, pPlayer->pCurrentProcess);
 
@@ -256,14 +248,14 @@ static std::optional<ConfigEntry> getMatchingConfigEntry() {
 /// <param name="apCharacterController"></param>
 /// <param name="apInput"></param>
 /// <param name="apResult"></param>
-static void getCameraRayCastOutput(
+static bool getCameraRayCastOutput(
     CommonLib::bhkCharacterController* apCharacterController, 
     CommonLib::hkpWorldRayCastInput* apInput, 
     CommonLib::hkpWorldRayCastOutput* apResult
 ) {
     CommonLib::NiCamera* camera = CdeclCall<CommonLib::NiCamera*>(Main_spWorldRoot_GetCamera_Address);
     const CommonLib::NiPoint3 niStart = camera->m_kWorld.m_Translate;
-    float rayCastRange = currentConfig.value_or(defaultConfig).fRayCastRange;
+    float rayCastRange = currentGuidedProjConfig.value_or(defaultConfig).fRayCastRange;
     CommonLib::NiPoint3 niEnd{
         niStart.x + camera->m_kWorld.m_Rotate.m_pEntry[0].x * rayCastRange,
         niStart.y + camera->m_kWorld.m_Rotate.m_pEntry[1].x * rayCastRange,
@@ -283,9 +275,15 @@ static void getCameraRayCastOutput(
     CommonLib::TESObjectCELL* parentCell = pPlayer->pParentCell;
 
     CommonLib::bhkWorld* pBhkWorld = ThisStdCall<CommonLib::bhkWorld*>(TESObjectCELL_GetbhkWorld_Address, parentCell);
-    CommonLib::hkpWorld* pHkpWorld = reinterpret_cast<CommonLib::hkpWorld*>(pBhkWorld->phkObject);
+    if (pBhkWorld) {
+        CommonLib::hkpWorld* pHkpWorld = reinterpret_cast<CommonLib::hkpWorld*>(pBhkWorld->phkObject);
+        if (pHkpWorld) {
+            ThisStdCall<void>(hkpWorld_castRay_Address, pHkpWorld, apInput, apResult);
+            return true;
+        }
+    }
 
-    ThisStdCall<void>(hkpWorld_castRay_Address, pHkpWorld, apInput, apResult);
+    return false;
 }
 
 /// <summary>
@@ -348,7 +346,7 @@ static void printPoint(const CommonLib::NiPoint3 vec, const char* name) {
 CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_GetCharacterState(CommonLib::bhkCharacterController* apCharacterController, void* edx)
 {
     CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
-    if (currentConfig && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && isCameraReady()) {
+    if (currentGuidedProjConfig && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && isCameraReady()) {
         CommonLib::TESObjectREFR* bsRef = nullptr;
         CommonLib::bhkShapePhantom* shapePhantom = apCharacterController->spShapePhantom.m_pObject;
         if (shapePhantom) {
@@ -370,41 +368,42 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
 
             CommonLib::hkpWorldRayCastInput* rayCastInput = New<CommonLib::hkpWorldRayCastInput, hkpWorldRayCastInput_Constructor_Address>();
             CommonLib::hkpWorldRayCastOutput* rayCastOutput = New<CommonLib::hkpWorldRayCastOutput, hkpWorldRayCastOutput_Constructor_Address>();
-            getCameraRayCastOutput(apCharacterController, rayCastInput, rayCastOutput);
+            bool rayCastSuccess = getCameraRayCastOutput(apCharacterController, rayCastInput, rayCastOutput);
+            if (rayCastSuccess) {
+                CommonLib::hkVector4 hitPoint = rayCastInput->m_from + (rayCastInput->m_to - rayCastInput->m_from) * rayCastOutput->m_hitFraction;
 
-            CommonLib::hkVector4 hitPoint = rayCastInput->m_from + (rayCastInput->m_to - rayCastInput->m_from) * rayCastOutput->m_hitFraction;
+                if (bDebugRayCast) debugRayCast(projectileLocation, hitPoint);
 
-            if (bDebugRayCast) debugRayCast(projectileLocation, hitPoint);
+                // Translation
+                CommonLib::hkVector4 forward = apCharacterController->ForwardVec;
+                forward.setNeg3(forward); // Forward points backwards, thanks Bethesda
+                CommonLib::hkVector4 up = apCharacterController->UpVec;
+                CommonLib::hkVector4 right{};
+                right.setCross3(forward, up);
+                up.setCross3(right, forward);
+                forward.normalize3();
+                up.normalize3();
+                right.normalize3();
 
-            // Translation
-            CommonLib::hkVector4 forward = apCharacterController->ForwardVec;
-            forward.setNeg3(forward); // Forward points backwards, thanks Bethesda
-            CommonLib::hkVector4 up = apCharacterController->UpVec;
-            CommonLib::hkVector4 right{};
-            right.setCross3(forward, up);
-            up.setCross3(right, forward);
-            forward.normalize3();
-            up.normalize3();
-            right.normalize3();
+                CommonLib::hkRotation rotationMatrix = { right, forward, up };
+                CommonLib::hkTransform transform{
+                    rotationMatrix,
+                    projectileLocation
+                };
 
-            CommonLib::hkRotation rotationMatrix = { right, forward, up };
-            CommonLib::hkTransform transform{
-                rotationMatrix,
-                projectileLocation
-            };
+                CommonLib::hkVector4 localVelocityNew{};
+                localVelocityNew.setTransformedInversePos(transform, hitPoint);
+                localVelocityNew.normalize3();
+                localVelocityNew *= apCharacterController->Direction.length3();
 
-            CommonLib::hkVector4 localVelocityNew{};
-            localVelocityNew.setTransformedInversePos(transform, hitPoint);
-            localVelocityNew.normalize3();
-            localVelocityNew *= apCharacterController->Direction.length3();
+                if (localVelocityNew.isOk3().m_bool) {
+                    apCharacterController->Direction = localVelocityNew;
+                }
 
-            if (localVelocityNew.isOk3().m_bool) {
-                apCharacterController->Direction = localVelocityNew;
-            }
-
-            // If projectile reaches ray cast point, kill to prevent erratic behavior
-            if (std::abs((rayCastInput->m_to - projectileLocation).length3()) < 5.0f) {
-                ThisStdCall<void>(Projectile_Kill_Addr, projectile);
+                // If projectile reaches ray cast point, kill to prevent erratic behavior
+                if (std::abs((rayCastInput->m_to - projectileLocation).length3()) < 5.0f) {
+                    ThisStdCall<void>(Projectile_Kill_Addr, projectile);
+                }
             }
         }
     }
@@ -423,7 +422,7 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
 void __fastcall Hook_bhkCharacterController_SetLinearVelocity(CommonLib::bhkCharacterController* apCharacterController, void* edx, CommonLib::hkVector4* vel)
 {
     CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
-    if (currentConfig && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && isCameraReady()) {
+    if (currentGuidedProjConfig && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && isCameraReady()) {
         CommonLib::bhkShapePhantom* shapePhantom = apCharacterController->spShapePhantom.m_pObject;
         CommonLib::hkReferencedObject* referencedObject = shapePhantom->phkObject;
         CommonLib::TESObjectREFR* bsRef = CdeclCall<CommonLib::TESObjectREFR*>(
@@ -462,7 +461,7 @@ void __fastcall Hook_bhkCharacterController_SetLinearVelocity(CommonLib::bhkChar
 bool __fastcall Hook_Projectile_Sync3DWithReference(CommonLib::Projectile* apProjectile, void* edx, bool abSyncRotation, bool abDoArcReorientation)
 {
     CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
-    abSyncRotation = currentConfig && isCameraReady() && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) ? true : abSyncRotation;
+    abSyncRotation = currentGuidedProjConfig && isCameraReady() && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) ? true : abSyncRotation;
     return ThisStdCall<bool>(SyncWith3dRefDetour.GetOverwrittenAddr(), apProjectile, abSyncRotation, abDoArcReorientation);
 }
 
@@ -475,7 +474,7 @@ bool __fastcall Hook_Projectile_Sync3DWithReference(CommonLib::Projectile* apPro
 /// <returns></returns>
 void __fastcall Hook_Actor_ClearPostAnimationActions(CommonLib::Actor* apActor, void* edx)
 {
-    currentConfig = getMatchingConfigEntry();
+    currentGuidedProjConfig = getMatchingConfigEntry();
     ThisStdCall<void>(EquipClearPostAnimationActionsDetour.GetOverwrittenAddr(), apActor);
 }
 
