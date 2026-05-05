@@ -112,6 +112,7 @@ powershell -NoProfile -ExecutionPolicy Unrestricted -File $(SolutionDir)package.
     <ClCompile Include="external\CommonLibFNV\src\Bethesda\MagicTarget.cpp" />
     <ClCompile Include="external\CommonLibFNV\src\Bethesda\MobileObject.cpp" />
     <ClCompile Include="external\CommonLibFNV\src\Bethesda\PlayerCharacter.cpp" />
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\TES.cpp" />
     <ClCompile Include="external\CommonLibFNV\src\Bethesda\TESChildCell.cpp" />
     <ClCompile Include="external\CommonLibFNV\src\Bethesda\TESForm.cpp" />
     <ClCompile Include="external\CommonLibFNV\src\Bethesda\TESRegionList.cpp" />

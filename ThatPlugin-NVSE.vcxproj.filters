@@ -150,6 +150,9 @@
     <ClCompile Include="external\CommonLibFNV\src\Bethesda\BaseExtraList.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\TES.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\BallisticMelee.hpp">

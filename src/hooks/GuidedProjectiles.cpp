@@ -21,6 +21,8 @@
 #include "Bethesda/TESObjectWEAP.hpp"
 #include "Bethesda/TESObjectIMOD.hpp"
 #include "Bethesda/TESAmmo.hpp"
+#include "Bethesda/bhkPickData.hpp"
+#include "Bethesda/TES.hpp"
 #include "Gamebryo/NiCamera.hpp"
 #include "Gamebryo/NiPoint3.hpp"
 #include "Gamebryo/NiColorA.hpp"
@@ -40,16 +42,11 @@ CallDetour EquipClearPostAnimationActionsDetour{};
 CallDetour UnequipClearPostAnimationActionsDetour{};
 
 constexpr std::uint32_t Main_spWorldRoot_GetCamera_Address = 0x00524C90;
-constexpr std::uint32_t hkpWorld_castRay_Address = 0x00C92040;
-constexpr std::uint32_t bhkCharacterController_GetWorld_Address = 0x00621AD0;
 constexpr std::uint32_t bhkCharacterController_GetCollisionFilter_Address = 0x0070C440;
 constexpr std::uint32_t bhkCharacterController_FindBSReference_Address = 0x00C6DEC0;
 constexpr std::uint32_t TESObjectREFR_IsProjectile_Address = 0x005725B0;
 constexpr std::uint32_t bhkCharacterController_GetPosition_Address = 0x00C6E300;
 constexpr std::uint32_t TESObjectREFR_SetAngleOnReference_Address = 0x00575700;
-constexpr std::uint32_t TESObjectCELL_GetbhkWorld_Address = 0x004543C0;
-constexpr std::uint32_t hkpWorldRayCastInput_Constructor_Address = 0x004A3CC0;
-constexpr std::uint32_t hkpWorldRayCastOutput_Constructor_Address = 0x004A3D00;
 constexpr std::uint32_t TESForm_GetFormByEditorID_Address = 0x00483A00;
 constexpr std::uint32_t TESForm_GetFormByNumericID_Address = 0x004839C0;
 constexpr std::uint32_t Process_GetCurrentWeapon_Addr = 0x008D81E0;
@@ -58,6 +55,9 @@ constexpr std::uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
 constexpr std::uint32_t TESObjectWEAP_GetProjectile_Addr = 0x00525A90;
 constexpr std::uint32_t Actor_IsWeaponDrawn_Addr = 0x008A16D0;
 constexpr std::uint32_t Projectile_Kill_Addr = 0x009BC8F0;
+constexpr std::uint32_t bhkWorld_GethkWorld_Addr = 0x00D47A30;
+constexpr std::uint32_t bhkPickData_Constructor_Addr = 0x004A3C20;
+constexpr std::uint32_t TES_Pick_Addr = 0x00458440;
 
 constexpr std::uint32_t MakeLine_Address = 0x004B3890;
 constexpr std::uint32_t TES_AddTempDebugObject_Address = 0x00458E20;
@@ -248,10 +248,9 @@ std::optional<ConfigEntry> getMatchingConfigEntry() {
 /// <param name="apCharacterController"></param>
 /// <param name="apInput"></param>
 /// <param name="apResult"></param>
-static bool getCameraRayCastOutput(
+static CommonLib::NiAVObject* getCameraRayCastOutput(
     CommonLib::bhkCharacterController* apCharacterController, 
-    CommonLib::hkpWorldRayCastInput* apInput, 
-    CommonLib::hkpWorldRayCastOutput* apResult
+    CommonLib::bhkPickData* apPickData
 ) {
     CommonLib::NiCamera* camera = CdeclCall<CommonLib::NiCamera*>(Main_spWorldRoot_GetCamera_Address);
     const CommonLib::NiPoint3 niStart = camera->m_kWorld.m_Translate;
@@ -265,25 +264,13 @@ static bool getCameraRayCastOutput(
     CommonLib::CFilter filter = CommonLib::CFilter{ 0 };
     ThisStdCall<CommonLib::CFilter*>(bhkCharacterController_GetCollisionFilter_Address, apCharacterController, &filter);
 
-    apInput->m_from = CommonLib::hkVector4::fromPoint(niStart);
-    apInput->m_to = CommonLib::hkVector4::fromPoint(niEnd);
-    apInput->m_filterInfo = (filter.iFilter & 0xFFFFFF80) | CommonLib::COL_LAYER::L_LOS;
+    apPickData->m_from = CommonLib::hkVector4::fromPoint(niStart);
+    apPickData->m_to = CommonLib::hkVector4::fromPoint(niEnd);
+    apPickData->m_filterInfo = (filter.iFilter & 0xFFFFFF80) | CommonLib::COL_LAYER::L_LOS;
 
-    CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
-    CommonLib::VATS* pVats = CommonLib::VATS::GetVATSSingleton();
+    CommonLib::TES* tes = CommonLib::TES::GetTESSingleton();
 
-    CommonLib::TESObjectCELL* parentCell = pPlayer->pParentCell;
-
-    CommonLib::bhkWorld* pBhkWorld = ThisStdCall<CommonLib::bhkWorld*>(TESObjectCELL_GetbhkWorld_Address, parentCell);
-    if (pBhkWorld) {
-        CommonLib::hkpWorld* pHkpWorld = reinterpret_cast<CommonLib::hkpWorld*>(pBhkWorld->phkObject);
-        if (pHkpWorld) {
-            ThisStdCall<void>(hkpWorld_castRay_Address, pHkpWorld, apInput, apResult);
-            return true;
-        }
-    }
-
-    return false;
+    return ThisStdCall<CommonLib::NiAVObject*>(TES_Pick_Addr, tes, apPickData, true);
 }
 
 /// <summary>
@@ -311,7 +298,7 @@ static void debugRayCast(CommonLib::hkVector4 projectileLocation, CommonLib::hkV
         hitPoint.m_quad.m128_f32[2] * CommonLib::fHk2BSScaleSC_639
     };
     void* line = CdeclCall<void*>(MakeLine_Address, &niLoc, &color, &niHit, &color, true);
-    void* tes = *(void**)0x11DEA10;
+    CommonLib::TES* tes = CommonLib::TES::GetTESSingleton();
     ThisStdCall<void>(TES_AddTempDebugObject_Address, tes, line, 10.0f);
 }
 
@@ -366,44 +353,43 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
             CommonLib::hkVector4 projectileLocation{};
             ThisStdCall<void>(bhkCharacterController_GetPosition_Address, apCharacterController, &projectileLocation);
 
-            CommonLib::hkpWorldRayCastInput* rayCastInput = New<CommonLib::hkpWorldRayCastInput, hkpWorldRayCastInput_Constructor_Address>();
-            CommonLib::hkpWorldRayCastOutput* rayCastOutput = New<CommonLib::hkpWorldRayCastOutput, hkpWorldRayCastOutput_Constructor_Address>();
-            bool rayCastSuccess = getCameraRayCastOutput(apCharacterController, rayCastInput, rayCastOutput);
-            if (rayCastSuccess) {
-                CommonLib::hkVector4 hitPoint = rayCastInput->m_from + (rayCastInput->m_to - rayCastInput->m_from) * rayCastOutput->m_hitFraction;
+            CommonLib::bhkPickData pickData;
+            ThisStdCall<void>(bhkPickData_Constructor_Addr, &pickData);
 
-                if (bDebugRayCast) debugRayCast(projectileLocation, hitPoint);
+            CommonLib::NiAVObject* hitObject = getCameraRayCastOutput(apCharacterController, &pickData);
+            CommonLib::hkVector4 hitPoint = pickData.m_from + (pickData.m_to - pickData.m_from) * pickData.m_hitFraction;
 
-                // Translation
-                CommonLib::hkVector4 forward = apCharacterController->ForwardVec;
-                forward.setNeg3(forward); // Forward points backwards, thanks Bethesda
-                CommonLib::hkVector4 up = apCharacterController->UpVec;
-                CommonLib::hkVector4 right{};
-                right.setCross3(forward, up);
-                up.setCross3(right, forward);
-                forward.normalize3();
-                up.normalize3();
-                right.normalize3();
+            if (bDebugRayCast) debugRayCast(projectileLocation, hitPoint);
 
-                CommonLib::hkRotation rotationMatrix = { right, forward, up };
-                CommonLib::hkTransform transform{
-                    rotationMatrix,
-                    projectileLocation
-                };
+            // Translation
+            CommonLib::hkVector4 forward = apCharacterController->ForwardVec;
+            forward.setNeg3(forward); // Forward points backwards, thanks Bethesda
+            CommonLib::hkVector4 up = apCharacterController->UpVec;
+            CommonLib::hkVector4 right{};
+            right.setCross3(forward, up);
+            up.setCross3(right, forward);
+            forward.normalize3();
+            up.normalize3();
+            right.normalize3();
 
-                CommonLib::hkVector4 localVelocityNew{};
-                localVelocityNew.setTransformedInversePos(transform, hitPoint);
-                localVelocityNew.normalize3();
-                localVelocityNew *= apCharacterController->Direction.length3();
+            CommonLib::hkRotation rotationMatrix = { right, forward, up };
+            CommonLib::hkTransform transform{
+                rotationMatrix,
+                projectileLocation
+            };
 
-                if (localVelocityNew.isOk3().m_bool) {
-                    apCharacterController->Direction = localVelocityNew;
-                }
+            CommonLib::hkVector4 localVelocityNew{};
+            localVelocityNew.setTransformedInversePos(transform, hitPoint);
+            localVelocityNew.normalize3();
+            localVelocityNew *= apCharacterController->Direction.length3();
 
-                // If projectile reaches ray cast point, kill to prevent erratic behavior
-                if (std::abs((rayCastInput->m_to - projectileLocation).length3()) < 5.0f) {
-                    ThisStdCall<void>(Projectile_Kill_Addr, projectile);
-                }
+            if (localVelocityNew.isOk3().m_bool) {
+                apCharacterController->Direction = localVelocityNew;
+            }
+
+            // If projectile reaches ray cast point, kill to prevent erratic behavior
+            if (std::abs((pickData.m_to - projectileLocation).length3()) < 5.0f) {
+                ThisStdCall<void>(Projectile_Kill_Addr, projectile);
             }
         }
     }
