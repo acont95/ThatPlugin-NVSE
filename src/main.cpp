@@ -8,6 +8,7 @@
 #include "BetterCounter.hpp"
 #include "BottomlessClip.hpp"
 #include "GuidedProjectiles.hpp"
+#include "PersistReferenceScale.hpp"
 #include "SimpleIni.h"
 #include "Globals.hpp"
 
@@ -136,6 +137,7 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 		installBetterCounterHooks();
 		installBottomlessClipHooks();
 		installGuidedProjectilesHook();
+		installPersistReferenceScaleHooks();
 	}
 
 	return true;

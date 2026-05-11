@@ -152,6 +152,7 @@ powershell -NoProfile -ExecutionPolicy Unrestricted -File $(SolutionDir)package.
     <ClCompile Include="src\hooks\BetterCounter.cpp" />
     <ClCompile Include="src\hooks\BottomlessClip.cpp" />
     <ClCompile Include="src\hooks\GuidedProjectiles.cpp" />
+    <ClCompile Include="src\hooks\PersistReferenceScale.cpp" />
     <ClCompile Include="src\main.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -166,6 +167,7 @@ powershell -NoProfile -ExecutionPolicy Unrestricted -File $(SolutionDir)package.
     <ClInclude Include="include\BallisticMelee.hpp" />
     <ClInclude Include="include\BetterCounter.hpp" />
     <ClInclude Include="include\GuidedProjectiles.hpp" />
+    <ClInclude Include="include\PersistReferenceScale.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
