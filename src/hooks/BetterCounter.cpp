@@ -46,12 +46,16 @@ int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 
 	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
 	CommonLib::ItemChange* weaponItemChange = ThisStdCall<CommonLib::ItemChange*>(Process_GetCurrentWeapon_Addr, pPlayer->pCurrentProcess);
-	bool hasModEffectActive = ThisStdCall<bool>(
-		ItemChange_HasModEffectActive_Addr,
-		weaponItemChange,
-		CommonLib::WEAPON_MOD_EFFECT::WEAPON_MOD_INCREASE_CLIP_SIZE
-	);
-	int clipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, weaponItemChange->pContainerObj, hasModEffectActive);
+
+	int clipSize = 0;
+	if (weaponItemChange) {
+		bool hasModEffectActive = ThisStdCall<bool>(
+			ItemChange_HasModEffectActive_Addr,
+			weaponItemChange,
+			CommonLib::WEAPON_MOD_EFFECT::WEAPON_MOD_INCREASE_CLIP_SIZE
+		);
+		clipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, weaponItemChange->pContainerObj, hasModEffectActive);
+	}
 
 	if (hideCounter) {
 		return snprintf(Buffer, BufferCount, "");
