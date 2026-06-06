@@ -349,47 +349,48 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
 
         if (bsRef && ThisStdCall<bool>(TESObjectREFR_IsProjectile_Address, bsRef)) {
             CommonLib::Projectile* projectile = static_cast<CommonLib::Projectile*>(bsRef);
+            if (projectile->pShooter && projectile->pShooter == pPlayer) {
+                CommonLib::hkVector4 projectileLocation{};
+                ThisStdCall<void>(bhkCharacterController_GetPosition_Address, apCharacterController, &projectileLocation);
 
-            CommonLib::hkVector4 projectileLocation{};
-            ThisStdCall<void>(bhkCharacterController_GetPosition_Address, apCharacterController, &projectileLocation);
+                CommonLib::bhkPickData pickData;
+                ThisStdCall<void>(bhkPickData_Constructor_Addr, &pickData);
 
-            CommonLib::bhkPickData pickData;
-            ThisStdCall<void>(bhkPickData_Constructor_Addr, &pickData);
+                CommonLib::NiAVObject* hitObject = getCameraRayCastOutput(apCharacterController, &pickData);
+                CommonLib::hkVector4 hitPoint = pickData.m_from + (pickData.m_to - pickData.m_from) * pickData.m_hitFraction;
 
-            CommonLib::NiAVObject* hitObject = getCameraRayCastOutput(apCharacterController, &pickData);
-            CommonLib::hkVector4 hitPoint = pickData.m_from + (pickData.m_to - pickData.m_from) * pickData.m_hitFraction;
+                if (bDebugRayCast) debugRayCast(projectileLocation, hitPoint);
 
-            if (bDebugRayCast) debugRayCast(projectileLocation, hitPoint);
+                // Translation
+                CommonLib::hkVector4 forward = apCharacterController->ForwardVec;
+                forward.setNeg3(forward); // Forward points backwards, thanks Bethesda
+                CommonLib::hkVector4 up = apCharacterController->UpVec;
+                CommonLib::hkVector4 right{};
+                right.setCross3(forward, up);
+                up.setCross3(right, forward);
+                forward.normalize3();
+                up.normalize3();
+                right.normalize3();
 
-            // Translation
-            CommonLib::hkVector4 forward = apCharacterController->ForwardVec;
-            forward.setNeg3(forward); // Forward points backwards, thanks Bethesda
-            CommonLib::hkVector4 up = apCharacterController->UpVec;
-            CommonLib::hkVector4 right{};
-            right.setCross3(forward, up);
-            up.setCross3(right, forward);
-            forward.normalize3();
-            up.normalize3();
-            right.normalize3();
+                CommonLib::hkRotation rotationMatrix = { right, forward, up };
+                CommonLib::hkTransform transform{
+                    rotationMatrix,
+                    projectileLocation
+                };
 
-            CommonLib::hkRotation rotationMatrix = { right, forward, up };
-            CommonLib::hkTransform transform{
-                rotationMatrix,
-                projectileLocation
-            };
+                CommonLib::hkVector4 localVelocityNew{};
+                localVelocityNew.setTransformedInversePos(transform, hitPoint);
+                localVelocityNew.normalize3();
+                localVelocityNew *= apCharacterController->Direction.length3();
 
-            CommonLib::hkVector4 localVelocityNew{};
-            localVelocityNew.setTransformedInversePos(transform, hitPoint);
-            localVelocityNew.normalize3();
-            localVelocityNew *= apCharacterController->Direction.length3();
+                if (localVelocityNew.isOk3().m_bool) {
+                    apCharacterController->Direction = localVelocityNew;
+                }
 
-            if (localVelocityNew.isOk3().m_bool) {
-                apCharacterController->Direction = localVelocityNew;
-            }
-
-            // If projectile reaches ray cast point, kill to prevent erratic behavior
-            if (std::abs((pickData.m_to - projectileLocation).length3()) < 5.0f) {
-                ThisStdCall<void>(Projectile_Kill_Addr, projectile);
+                // If projectile reaches ray cast point, kill to prevent erratic behavior
+                if (std::abs((pickData.m_to - projectileLocation).length3()) < 5.0f) {
+                    ThisStdCall<void>(Projectile_Kill_Addr, projectile);
+                }
             }
         }
     }
@@ -419,18 +420,20 @@ void __fastcall Hook_bhkCharacterController_SetLinearVelocity(CommonLib::bhkChar
 
         if (bsRef && ThisStdCall<bool>(TESObjectREFR_IsProjectile_Address, bsRef)) {
             CommonLib::Projectile* projectile = static_cast<CommonLib::Projectile*>(bsRef);
-            CommonLib::NiPoint3 up3d = CommonLib::NiPoint3::UNIT_Z;
-            CommonLib::NiPoint3 directionForward{ vel->m_quad.m128_f32[0], vel->m_quad.m128_f32[1] , vel->m_quad.m128_f32[2] };
-            CommonLib::NiPoint3 directionRight = directionForward.UnitCross(up3d);
-            CommonLib::NiPoint3 directionUp = directionForward.UnitCross(directionRight);
-            directionForward.Unitize();
+            if (projectile->pShooter && projectile->pShooter == pPlayer) {
+                CommonLib::NiPoint3 up3d = CommonLib::NiPoint3::UNIT_Z;
+                CommonLib::NiPoint3 directionForward{ vel->m_quad.m128_f32[0], vel->m_quad.m128_f32[1] , vel->m_quad.m128_f32[2] };
+                CommonLib::NiPoint3 directionRight = directionForward.UnitCross(up3d);
+                CommonLib::NiPoint3 directionUp = directionForward.UnitCross(directionRight);
+                directionForward.Unitize();
 
-            CommonLib::NiMatrix3 rotationNew3d{ directionRight, directionForward, directionUp };
-            rotationNew3d = rotationNew3d.Transpose();
+                CommonLib::NiMatrix3 rotationNew3d{ directionRight, directionForward, directionUp };
+                rotationNew3d = rotationNew3d.Transpose();
 
-            CommonLib::NiPoint3 newReferenceAngle{};
-            rotationNew3d.ToEulerAnglesZXY(newReferenceAngle.z, newReferenceAngle.x, newReferenceAngle.y);
-            ThisStdCall<void>(TESObjectREFR_SetAngleOnReference_Address, projectile, newReferenceAngle);
+                CommonLib::NiPoint3 newReferenceAngle{};
+                rotationNew3d.ToEulerAnglesZXY(newReferenceAngle.z, newReferenceAngle.x, newReferenceAngle.y);
+                ThisStdCall<void>(TESObjectREFR_SetAngleOnReference_Address, projectile, newReferenceAngle);
+            }
         }
     }
 
@@ -447,7 +450,8 @@ void __fastcall Hook_bhkCharacterController_SetLinearVelocity(CommonLib::bhkChar
 bool __fastcall Hook_Projectile_Sync3DWithReference(CommonLib::Projectile* apProjectile, void* edx, bool abSyncRotation, bool abDoArcReorientation)
 {
     CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
-    abSyncRotation = currentGuidedProjConfig && isCameraReady() && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) ? true : abSyncRotation;
+    bool bPlayerIsShooter = apProjectile && apProjectile->pShooter && apProjectile->pShooter == pPlayer;
+    abSyncRotation = currentGuidedProjConfig && isCameraReady() && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && bPlayerIsShooter ? true : abSyncRotation;
     return ThisStdCall<bool>(SyncWith3dRefDetour.GetOverwrittenAddr(), apProjectile, abSyncRotation, abDoArcReorientation);
 }
 
