@@ -11,5 +11,4 @@ struct ConfigEntry {
     std::uint32_t projectileId = 0;
     float fRayCastRange = 10000.0f;
 };
-extern std::optional<ConfigEntry> currentGuidedProjConfig;
 std::optional<ConfigEntry> getMatchingConfigEntry();

@@ -20,7 +20,7 @@ PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 NVSEMessagingInterface* g_messagingInterface{};
 NVSEInterface* g_nvseInterface{};
 
-constexpr char g_PluginVersion[] = "0.4.2";
+constexpr char g_PluginVersion[] = "0.4.3";
 const std::filesystem::path g_dataPath = "Data";
 const std::filesystem::path g_pluginsPath = g_dataPath / "NVSE/Plugins";
 const std::filesystem::path g_IniFile = "ThatPlugin.ini";
@@ -67,9 +67,7 @@ void MessageHandler(NVSEMessagingInterface::Message* msg)
 	case NVSEMessagingInterface::kMessage_SaveGame: break;
 	case NVSEMessagingInterface::kMessage_PreLoadGame: break;
 	case NVSEMessagingInterface::kMessage_ExitGame_Console: break;
-	case NVSEMessagingInterface::kMessage_PostLoadGame: 
-		currentGuidedProjConfig = getMatchingConfigEntry();
-		break; 
+	case NVSEMessagingInterface::kMessage_PostLoadGame: break; 
 	case NVSEMessagingInterface::kMessage_PostPostLoad: break; // Not working
 	case NVSEMessagingInterface::kMessage_RuntimeScriptError: break;
 	case NVSEMessagingInterface::kMessage_DeleteGame: break;
@@ -99,7 +97,7 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* i
 
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "ThatPluginNVSE";
-	info->version = 042;
+	info->version = 043;
 
 	// version checks
 	if (nvse->nvseVersion < PACKED_NVSE_VERSION)

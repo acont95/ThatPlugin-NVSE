@@ -38,8 +38,6 @@
 CallDetour GetCharacterStateDetour{};
 CallDetour SetLinearVelocityDetour{};
 CallDetour SyncWith3dRefDetour{};
-CallDetour EquipClearPostAnimationActionsDetour{};
-CallDetour UnequipClearPostAnimationActionsDetour{};
 
 constexpr std::uint32_t Main_spWorldRoot_GetCamera_Address = 0x00524C90;
 constexpr std::uint32_t bhkCharacterController_GetCollisionFilter_Address = 0x0070C440;
@@ -73,8 +71,6 @@ struct WeaponModIds {
 };
 
 static std::vector<ConfigEntry> configEntries;
-std::optional<ConfigEntry> currentGuidedProjConfig = std::nullopt;
-static const ConfigEntry defaultConfig{};
 
 
 /// <summary>
@@ -228,7 +224,7 @@ std::optional<ConfigEntry> getMatchingConfigEntry() {
                     if ((!entry.projectileId || entry.projectileId == projectileId) &&
                         (!entry.weaponId || entry.weaponId == weaponId) &&
                         (!entry.ammoId || entry.ammoId == ammoId) &&
-                        weaponModIdsMatch(modIds, entry.weaponModId)) {
+                        (!entry.weaponModId || weaponModIdsMatch(modIds, entry.weaponModId))) {
 
                         return entry;
                     }
@@ -250,11 +246,12 @@ std::optional<ConfigEntry> getMatchingConfigEntry() {
 /// <param name="apResult"></param>
 static CommonLib::NiAVObject* getCameraRayCastOutput(
     CommonLib::bhkCharacterController* apCharacterController, 
-    CommonLib::bhkPickData* apPickData
+    CommonLib::bhkPickData* apPickData,
+    ConfigEntry* configEntry
 ) {
     CommonLib::NiCamera* camera = CdeclCall<CommonLib::NiCamera*>(Main_spWorldRoot_GetCamera_Address);
     const CommonLib::NiPoint3 niStart = camera->m_kWorld.m_Translate;
-    float rayCastRange = currentGuidedProjConfig.value_or(defaultConfig).fRayCastRange;
+    float rayCastRange = configEntry->fRayCastRange;
     CommonLib::NiPoint3 niEnd{
         niStart.x + camera->m_kWorld.m_Rotate.m_pEntry[0].x * rayCastRange,
         niStart.y + camera->m_kWorld.m_Rotate.m_pEntry[1].x * rayCastRange,
@@ -333,7 +330,8 @@ static void printPoint(const CommonLib::NiPoint3 vec, const char* name) {
 CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_GetCharacterState(CommonLib::bhkCharacterController* apCharacterController, void* edx)
 {
     CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
-    if (currentGuidedProjConfig && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && isCameraReady()) {
+    std::optional<ConfigEntry> currConfig = getMatchingConfigEntry();
+    if (currConfig && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && isCameraReady()) {
         CommonLib::TESObjectREFR* bsRef = nullptr;
         CommonLib::bhkShapePhantom* shapePhantom = apCharacterController->spShapePhantom.m_pObject;
         if (shapePhantom) {
@@ -356,7 +354,7 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
                 CommonLib::bhkPickData pickData;
                 ThisStdCall<void>(bhkPickData_Constructor_Addr, &pickData);
 
-                CommonLib::NiAVObject* hitObject = getCameraRayCastOutput(apCharacterController, &pickData);
+                CommonLib::NiAVObject* hitObject = getCameraRayCastOutput(apCharacterController, &pickData, &currConfig.value());
                 CommonLib::hkVector4 hitPoint = pickData.m_from + (pickData.m_to - pickData.m_from) * pickData.m_hitFraction;
 
                 if (bDebugRayCast) debugRayCast(projectileLocation, hitPoint);
@@ -409,7 +407,7 @@ CommonLib::bhkCharacterStateProjectile* __fastcall Hook_bhkCharacterController_G
 void __fastcall Hook_bhkCharacterController_SetLinearVelocity(CommonLib::bhkCharacterController* apCharacterController, void* edx, CommonLib::hkVector4* vel)
 {
     CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
-    if (currentGuidedProjConfig && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && isCameraReady()) {
+    if (getMatchingConfigEntry() && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && isCameraReady()) {
         CommonLib::bhkShapePhantom* shapePhantom = apCharacterController->spShapePhantom.m_pObject;
         CommonLib::hkReferencedObject* referencedObject = shapePhantom->phkObject;
         CommonLib::TESObjectREFR* bsRef = CdeclCall<CommonLib::TESObjectREFR*>(
@@ -451,21 +449,8 @@ bool __fastcall Hook_Projectile_Sync3DWithReference(CommonLib::Projectile* apPro
 {
     CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
     bool bPlayerIsShooter = apProjectile && apProjectile->pShooter && apProjectile->pShooter == pPlayer;
-    abSyncRotation = currentGuidedProjConfig && isCameraReady() && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && bPlayerIsShooter ? true : abSyncRotation;
+    abSyncRotation = getMatchingConfigEntry() && isCameraReady() && ThisStdCall<bool>(Actor_IsWeaponDrawn_Addr, pPlayer) && bPlayerIsShooter ? true : abSyncRotation;
     return ThisStdCall<bool>(SyncWith3dRefDetour.GetOverwrittenAddr(), apProjectile, abSyncRotation, abDoArcReorientation);
-}
-
-/// <summary>
-/// Hook call inside Actor::EquipObejct to trigger checking configuration on current equipment.
-/// This call is hooked to avoid conflicts with hooking EquipObject function itself.
-/// </summary>
-/// <param name="apActor"></param>
-/// <param name="edx"></param>
-/// <returns></returns>
-void __fastcall Hook_Actor_ClearPostAnimationActions(CommonLib::Actor* apActor, void* edx)
-{
-    currentGuidedProjConfig = getMatchingConfigEntry();
-    ThisStdCall<void>(EquipClearPostAnimationActionsDetour.GetOverwrittenAddr(), apActor);
 }
 
 
@@ -474,7 +459,5 @@ void installGuidedProjectilesHook() {
         GetCharacterStateDetour.WriteRelCall(0x00C737DD, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_GetCharacterState));
         SetLinearVelocityDetour.WriteRelCall(0x00C73821, reinterpret_cast<std::uint32_t>(&Hook_bhkCharacterController_SetLinearVelocity));
         SyncWith3dRefDetour.WriteRelCall(0x009B8552, reinterpret_cast<std::uint32_t>(&Hook_Projectile_Sync3DWithReference));
-        EquipClearPostAnimationActionsDetour.WriteRelCall(0x0088C872, reinterpret_cast<std::uint32_t>(&Hook_Actor_ClearPostAnimationActions));
-        UnequipClearPostAnimationActionsDetour.WriteRelCall(0x0088D7FF, reinterpret_cast<std::uint32_t>(&Hook_Actor_ClearPostAnimationActions));
     }
 }
