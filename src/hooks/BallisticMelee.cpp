@@ -12,6 +12,8 @@
 #include "Bethesda/PlayerCharacter.hpp"
 #include "Bethesda/BaseProcess.hpp"
 #include "Bethesda/InventoryChanges.hpp"
+#include "Bethesda/TESAnimGroup.hpp"
+#include "Bethesda/Animation.hpp"
 #include "Gamebryo/NiPoint3.hpp"
 #include "BallisticMelee.hpp"
 #include "Globals.hpp"
@@ -22,12 +24,21 @@ CallDetour ObjectHitDetour{};
 CallDetour CombatHitDetour{};
 CallDetour GetCurrentAmmoDetour{};
 CallDetour ReduceDamageDetour{};
+CallDetour IsAttackActionDetour{};
+CallDetour BlendOutDetour{};
+CallDetour GetOffsetDetour{};
 
 constexpr std::uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
 constexpr std::uint32_t Actor_ShouldUseAmmo_Addr = 0x008A8DD0;
 constexpr std::uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
 constexpr std::uint32_t Projectile_Constructor_Addr = 0x009BBEF0;
 constexpr std::uint32_t TESForm_SetTemporary_Addr = 0x00484490;
+constexpr std::uint32_t Animation_PlayGroup_Addr = 0x00494740;
+constexpr std::uint32_t PlayerCharacter_StartAnimOn1stPerson_Addr = 0x009520F0;
+constexpr std::uint32_t Actor_SetAnimAction_Addr = 0x008A73E0;
+constexpr std::uint32_t TESAnimGroup_GetTime_Addr = 0x005F3780;
+constexpr std::uint32_t Animation_GetSequence_Addr = 0x00491040;
+constexpr std::uint32_t BSAnimGroupSequence_GetAnimGroup_Addr = 0x0048F7F0;
 
 bool isBallisticMelee(CommonLib::TESObjectWEAP* weapon) {
 	return weapon->data.eType <= CommonLib::WEAPON_TYPE::WEAPON_TWO_HAND_MELEE && weapon->pFormAmmo;
@@ -117,6 +128,140 @@ void __fastcall Hook_ReduceDamage(CommonLib::HitData* hitData, void* edx, bool a
 	ThisStdCall<void>(ReduceDamageDetour.GetOverwrittenAddr(), hitData, abIgnoreBlocking);
 }
 
+
+struct AnimGroupInfoAC {
+	char* pName;
+	bool bMultipleSequences;
+	int eSectionLayer;
+	int eAction;
+	int eActions[5];
+};
+
+
+struct AnimGroupActionTypeKeys
+{
+	char* pName0;
+	char* pName1;
+	char* pName2;
+	char* pName3;
+	char* pName4;
+	char* pName5;
+	char* pName6;
+	char* pName7;
+	char* pName8;
+	char* pName9;
+	char* pName10;
+};
+
+
+bool __fastcall Hook_IsAttackAction(CommonLib::TESAnimGroup* pAnimGroup, void* edx)
+{
+	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+	CommonLib::Animation* pAnimation = *reinterpret_cast<CommonLib::Animation**>(ebp - 0x18C);
+	CommonLib::ANIM_GROUP_INFO* pAnimGroupInfo = reinterpret_cast<CommonLib::ANIM_GROUP_INFO*>(0x011977D8);
+	std::uint8_t usAnimGroup = static_cast<std::uint8_t>(pAnimGroup->sType);
+
+	CommonLib::ANIM_GROUP_INFO animGroupInfo = pAnimGroupInfo[usAnimGroup];
+
+	if (pAnimation && 
+		animGroupInfo.eAction == CommonLib::ANIM_GROUP_ACTION_TYPE::AGAT_ATTACK_POWER //&&
+		//pAnimation->sQueuedReloadGroup != CommonLib::ANIM_GROUP_ENUM::ANIM_GROUP_NONE &&
+		//pAnimation->action[4] == CommonLib::ANIM_GROUP_ACTION::AGA_ATTACK_POWER_STOP
+		)
+	{
+		Console_Print("HELLO %d", pAnimation->action[4]);
+		Console_Print("Time %f", pAnimation->time);
+		return false;
+	}
+
+	return ThisStdCall<bool>(IsAttackActionDetour.GetOverwrittenAddr(), pAnimGroup);
+}
+
+void __fastcall Hook_BlendOut(CommonLib::Animation* pAnimation, void* edx, CommonLib::ANIM_GROUP_SECTION aeSection, bool abIronSightsToggle)
+{
+	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+	CommonLib::TESObjectREFR* pOwnerObject = *reinterpret_cast<CommonLib::TESObjectREFR**>(ebp + 0x8);
+
+	CommonLib::ANIM_GROUP_INFO* pAnimGroupInfo = reinterpret_cast<CommonLib::ANIM_GROUP_INFO*>(0x011977D8);
+
+	std::uint8_t usAnimGroup = static_cast<std::uint8_t>(pAnimation->group[4]);
+	CommonLib::ANIM_GROUP_INFO animGroupInfo = pAnimGroupInfo[usAnimGroup];
+
+	if (pAnimation &&
+		animGroupInfo.eAction == CommonLib::ANIM_GROUP_ACTION_TYPE::AGAT_ATTACK_POWER &&
+		pAnimation->sQueuedReloadGroup != CommonLib::ANIM_GROUP_ENUM::ANIM_GROUP_NONE
+		)
+	{
+		ThisStdCall<CommonLib::BSAnimGroupSequence*>(
+			Animation_PlayGroup_Addr,
+			pAnimation, 
+			pAnimation->sQueuedReloadGroup, 
+			1, 
+			-1, 
+			CommonLib::ANIM_GROUP_SECTION::AGS_NONE
+		);
+
+		CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+
+		if (pOwnerObject && pOwnerObject == pPlayer) {
+			ThisStdCall<void>(PlayerCharacter_StartAnimOn1stPerson_Addr, pPlayer, pAnimation->sQueuedReloadGroup, 1);
+		}
+		ThisStdCall<void>(Actor_SetAnimAction_Addr, pOwnerObject, 9, pAnimation->pCurrentSequence[4]);
+
+	}
+	else {
+		ThisStdCall<void>(BlendOutDetour.GetOverwrittenAddr(), pAnimation, aeSection, abIronSightsToggle);
+	}
+}
+
+float __fastcall Hook_GetOffset(CommonLib::Animation* pAnimation, void* edx, CommonLib::BSAnimGroupSequence* apSequence)
+{
+	float fOffset = ThisStdCall<float>(GetOffsetDetour.GetOverwrittenAddr(), pAnimation, apSequence);
+
+	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+	CommonLib::TESObjectREFR* pOwnerObject = *reinterpret_cast<CommonLib::TESObjectREFR**>(ebp + 0x8);
+	CommonLib::ANIM_GROUP_INFO* pAnimGroupInfo = reinterpret_cast<CommonLib::ANIM_GROUP_INFO*>(0x011977D8);
+
+	CommonLib::ANIM_GROUP_SECTION eSection = *reinterpret_cast<CommonLib::ANIM_GROUP_SECTION*>(ebp - 0x28);
+
+	std::uint8_t usAnimGroup = static_cast<std::uint8_t>(pAnimation->group[eSection]);
+	CommonLib::ANIM_GROUP_INFO animGroupInfo = pAnimGroupInfo[usAnimGroup];
+
+	if (pAnimation &&
+		eSection == CommonLib::ANIM_GROUP_SECTION::AGS_WEAPON &&
+		animGroupInfo.eAction == CommonLib::ANIM_GROUP_ACTION_TYPE::AGAT_ATTACK_POWER &&
+		pAnimation->sQueuedReloadGroup != CommonLib::ANIM_GROUP_ENUM::ANIM_GROUP_NONE &&
+		pAnimation->action[eSection] == CommonLib::ANIM_GROUP_ACTION::AGA_ATTACK_HIT
+		)
+	{
+		CommonLib::BSAnimGroupSequence* pAnimGroupSequence = ThisStdCall<CommonLib::BSAnimGroupSequence*>(Animation_GetSequence_Addr, pAnimation, eSection);
+		CommonLib::TESAnimGroup* pAnimGroup = ThisStdCall<CommonLib::TESAnimGroup*>(BSAnimGroupSequence_GetAnimGroup_Addr, pAnimGroupSequence);
+
+		float fCurrActionTime = ThisStdCall<float>(TESAnimGroup_GetTime_Addr, pAnimGroup, pAnimation->action[eSection]);
+		float fNextActionTime = ThisStdCall<float>(TESAnimGroup_GetTime_Addr, pAnimGroup, pAnimation->action[eSection] + 1);
+
+		if (fOffset >= fCurrActionTime + (fNextActionTime - fCurrActionTime) * 0.5f) {
+			Console_Print("GETOFFSET");
+			ThisStdCall<CommonLib::BSAnimGroupSequence*>(
+				Animation_PlayGroup_Addr,
+				pAnimation,
+				pAnimation->sQueuedReloadGroup,
+				1,
+				-1,
+				CommonLib::ANIM_GROUP_SECTION::AGS_NONE
+			);
+
+			CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+			if (pOwnerObject && pOwnerObject == pPlayer) {
+				ThisStdCall<void>(PlayerCharacter_StartAnimOn1stPerson_Addr, pPlayer, pAnimation->sQueuedReloadGroup, 1);
+			}
+			ThisStdCall<void>(Actor_SetAnimAction_Addr, pOwnerObject, 9, pAnimation->pCurrentSequence[eSection]);
+		}
+	}
+
+	return fOffset;
+}
+
 void installBallisticMeleeHooks() {
 	if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bEnabled")) {
 		// Hook TESObjectWEAP::IsMeleeWeapon call in HUDMainMenu::UpdateWeaponStatus
@@ -138,5 +283,9 @@ void installBallisticMeleeHooks() {
 
 		// Hook TESObjectWEAP::IsMeleeWeapon call in HitData::ReduceDamage
 		WriteRelCall(0x009B5F81, reinterpret_cast<std::uint32_t>(&Hook_IsMeleeWeapon));
+
+		//IsAttackActionDetour.WriteRelCall(0x004912BF, reinterpret_cast<std::uint32_t>(&Hook_IsAttackAction));
+		//BlendOutDetour.WriteRelCall(0x00491F1D, reinterpret_cast<std::uint32_t>(&Hook_BlendOut));
+		GetOffsetDetour.WriteRelCall(0x00491E05, reinterpret_cast<std::uint32_t>(&Hook_GetOffset));
 	}
 }
