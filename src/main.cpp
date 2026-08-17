@@ -20,7 +20,7 @@ PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 NVSEMessagingInterface* g_messagingInterface{};
 NVSEInterface* g_nvseInterface{};
 
-constexpr char g_PluginVersion[] = "0.4.3";
+constexpr char g_PluginVersion[] = "0.4.4";
 const std::filesystem::path g_dataPath = "Data";
 const std::filesystem::path g_pluginsPath = g_dataPath / "NVSE/Plugins";
 const std::filesystem::path g_IniFile = "ThatPlugin.ini";
@@ -97,7 +97,7 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Query(const NVSEInterface* nvse, PluginInfo* i
 
 	info->infoVersion = PluginInfo::kInfoVersion;
 	info->name = "ThatPluginNVSE";
-	info->version = 043;
+	info->version = 044;
 
 	// version checks
 	if (nvse->nvseVersion < PACKED_NVSE_VERSION)

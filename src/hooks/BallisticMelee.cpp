@@ -131,6 +131,10 @@ float __fastcall Hook_GetOffset(CommonLib::Animation* pAnimation, void* edx, Com
 {
 	float fOffset = ThisStdCall<float>(GetOffsetDetour.GetOverwrittenAddr(), pAnimation, apSequence);
 
+	if (pAnimation == nullptr) {
+		return fOffset;
+	}
+
 	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
 	CommonLib::TESObjectREFR* pOwnerObject = *reinterpret_cast<CommonLib::TESObjectREFR**>(ebp + 0x8);
 	CommonLib::ANIM_GROUP_INFO* pAnimGroupInfo = reinterpret_cast<CommonLib::ANIM_GROUP_INFO*>(0x011977D8);
@@ -140,15 +144,20 @@ float __fastcall Hook_GetOffset(CommonLib::Animation* pAnimation, void* edx, Com
 	std::uint8_t usAnimGroup = static_cast<std::uint8_t>(pAnimation->group[eSection]);
 	CommonLib::ANIM_GROUP_INFO animGroupInfo = pAnimGroupInfo[usAnimGroup];
 
-	if (pAnimation &&
-		eSection == CommonLib::ANIM_GROUP_SECTION::AGS_WEAPON &&
+	if (eSection == CommonLib::ANIM_GROUP_SECTION::AGS_WEAPON &&
 		animGroupInfo.eAction == CommonLib::ANIM_GROUP_ACTION_TYPE::AGAT_ATTACK_POWER &&
 		pAnimation->sQueuedReloadGroup != CommonLib::ANIM_GROUP_ENUM::ANIM_GROUP_NONE &&
-		pAnimation->action[eSection] == CommonLib::ANIM_GROUP_ACTION::AGA_ATTACK_HIT
-		)
+		pAnimation->action[eSection] == CommonLib::ANIM_GROUP_ACTION::AGA_ATTACK_HIT)
 	{
 		CommonLib::BSAnimGroupSequence* pAnimGroupSequence = ThisStdCall<CommonLib::BSAnimGroupSequence*>(Animation_GetSequence_Addr, pAnimation, eSection);
+		if (pAnimGroupSequence == nullptr) {
+			return fOffset;
+		}
+
 		CommonLib::TESAnimGroup* pAnimGroup = ThisStdCall<CommonLib::TESAnimGroup*>(BSAnimGroupSequence_GetAnimGroup_Addr, pAnimGroupSequence);
+		if (pAnimGroup == nullptr) {
+			return fOffset;
+		}
 
 		float fCurrActionTime = ThisStdCall<float>(TESAnimGroup_GetTime_Addr, pAnimGroup, pAnimation->action[eSection]);
 		float fNextActionTime = ThisStdCall<float>(TESAnimGroup_GetTime_Addr, pAnimGroup, pAnimation->action[eSection] + 1);
@@ -168,14 +177,15 @@ float __fastcall Hook_GetOffset(CommonLib::Animation* pAnimation, void* edx, Com
 				ThisStdCall<void>(PlayerCharacter_StartAnimOn1stPerson_Addr, pPlayer, pAnimation->sQueuedReloadGroup, CommonLib::ACTION_FLAGS::ACTION_START);
 			}
 
-			CommonLib::TESObjectWEAP* pCurrentWeapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, pOwnerObject);
-			if (pCurrentWeapon->bIsLoopingReload) {
-				ThisStdCall<void>(Actor_SetAnimAction_Addr, pOwnerObject, CommonLib::ANIMATION_ACTION::ANIM_ACTION_RELOAD_LOOP, pAnimation->pCurrentSequence[eSection]);
+			if (pOwnerObject && pOwnerObject->IsActor()) {
+				CommonLib::TESObjectWEAP* pCurrentWeapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, pOwnerObject);
+				if (pCurrentWeapon && pCurrentWeapon->bIsLoopingReload) {
+					ThisStdCall<void>(Actor_SetAnimAction_Addr, pOwnerObject, CommonLib::ANIMATION_ACTION::ANIM_ACTION_RELOAD_LOOP, pAnimation->pCurrentSequence[eSection]);
+				}
+				else {
+					ThisStdCall<void>(Actor_SetAnimAction_Addr, pOwnerObject, CommonLib::ANIMATION_ACTION::ANIM_ACTION_RELOAD, pAnimation->pCurrentSequence[eSection]);
+				}
 			}
-			else {
-				ThisStdCall<void>(Actor_SetAnimAction_Addr, pOwnerObject, CommonLib::ANIMATION_ACTION::ANIM_ACTION_RELOAD, pAnimation->pCurrentSequence[eSection]);
-			}
-			
 		}
 	}
 
