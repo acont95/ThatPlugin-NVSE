@@ -24,6 +24,7 @@ PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 
 NVSEMessagingInterface* g_messagingInterface{};
 NVSEInterface* g_nvseInterface{};
+NVSEEventManagerInterface* g_eventInterface{};
 
 constexpr std::uint32_t PLUGIN_VERSION = 45;
 constexpr char g_PluginVersion[] = "0.4.5";
@@ -138,6 +139,7 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 	// register to receive messages from NVSE
 	g_messagingInterface = static_cast<NVSEMessagingInterface*>(nvse->QueryInterface(kInterface_Messaging));
 	g_messagingInterface->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
+	g_eventInterface = static_cast<NVSEEventManagerInterface*>(nvse->QueryInterface(kInterface_EventManager));
 
 	Globals::g_Ini.SetQuotes();
 	Globals::g_Ini.SetUnicode();
