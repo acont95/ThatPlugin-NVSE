@@ -25,6 +25,7 @@ CallDetour CombatHitDetour{};
 CallDetour GetCurrentAmmoDetour{};
 CallDetour ReduceDamageDetour{};
 CallDetour GetOffsetDetour{};
+CallDetour HitMeDetour{};
 
 constexpr std::uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
 constexpr std::uint32_t Actor_ShouldUseAmmo_Addr = 0x008A8DD0;
@@ -51,13 +52,6 @@ bool __fastcall Hook_IsMeleeWeapon(CommonLib::TESObjectWEAP* weapon, void* edx)
 	return weapon->data.eType <= CommonLib::WEAPON_TYPE::WEAPON_TWO_HAND_MELEE;
 }
 
-bool __fastcall Hook_IsMeleeWeapon_ReduceDamage(CommonLib::TESObjectWEAP* weapon, void* edx)
-{
-	if (isBallisticMelee(weapon))
-		SafeWrite32(reinterpret_cast<std::uint32_t>(_AddressOfReturnAddress()), 0x009B5FA0);
-
-	return weapon->data.eType <= CommonLib::WEAPON_TYPE::WEAPON_TWO_HAND_MELEE;
-}
 
 CommonLib::Tile* __fastcall Hook_ObjectHit(CommonLib::Actor* actor, void* edx, bool abPowerAttack)
 {
@@ -107,16 +101,24 @@ CommonLib::TESAmmo* __fastcall Hook_GetCurrentAmmo(CommonLib::TESObjectWEAP* wea
 	return ThisStdCall<CommonLib::TESAmmo*>(GetCurrentAmmoDetour.GetOverwrittenAddr(), weapon, apWeaponHolder);
 }
 
-void __fastcall Hook_ReduceDamage(CommonLib::HitData* pHitData, void* edx, bool abIgnoreBlocking)
+
+void __fastcall Hook_HitMe(CommonLib::Actor* pActor, void* edx, CommonLib::HitData* pHitData, char cMeleeEffect)
 {
 	CommonLib::TESObjectWEAP* apFromWeapon = pHitData->pWeapon;
+	CommonLib::TESObjectREFR* pOriginalSource = pHitData->pSourceRef;
+
 	if (apFromWeapon && isBallisticMelee(apFromWeapon)) {
 		CommonLib::BGSProjectile* apProjectileBase = apFromWeapon->data.pProjectile;
 		CommonLib::Actor* apShooter = pHitData->pAggressor;
 
 		if (apProjectileBase && apShooter) {
 			CommonLib::NiPoint3 locationOnRef = *ThisStdCall<CommonLib::NiPoint3*>(Actor_GetLocationOnReference_Addr, apShooter);
-			CommonLib::Projectile* projectile = New<CommonLib::Projectile, Projectile_Constructor_Addr>(
+
+			alignas(CommonLib::Projectile) std::byte projAlloc[sizeof(CommonLib::Projectile)];
+			CommonLib::Projectile* projectile = reinterpret_cast<CommonLib::Projectile*>(projAlloc);
+			ThisStdCall<void>(
+				Projectile_Constructor_Addr,
+				projectile,
 				apProjectileBase,
 				apShooter,
 				apFromWeapon,
@@ -124,15 +126,17 @@ void __fastcall Hook_ReduceDamage(CommonLib::HitData* pHitData, void* edx, bool 
 				0.0f,
 				0.0f
 			);
+
 			projectile->cFormType = CommonLib::ENUM_FORM_ID::PROJ_ID;
 			ThisStdCall<void>(TESForm_SetTemporary_Addr, projectile);
-			
+
 			// Set projectile on HitData for JIP compatability, needed for ammo scripts and effects to work
 			pHitData->pSourceRef = projectile;
 		}
 	}
 
-	ThisStdCall<void>(ReduceDamageDetour.GetOverwrittenAddr(), pHitData, abIgnoreBlocking);
+	ThisStdCall<void>(HitMeDetour.GetOverwrittenAddr(), pActor, pHitData, cMeleeEffect);
+	pHitData->pSourceRef = pOriginalSource;
 }
 
 
@@ -214,13 +218,17 @@ void installBallisticMeleeHooks() {
 		GetCurrentAmmoDetour.WriteRelCall(0x00949E39, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentAmmo));
 
 		// Hook HitData::ReduceDamage in HitData::InitializeHitData
-		ReduceDamageDetour.WriteRelCall(0x009B5623, reinterpret_cast<std::uint32_t>(&Hook_ReduceDamage));
+		//ReduceDamageDetour.WriteRelCall(0x009B5623, reinterpret_cast<std::uint32_t>(&Hook_ReduceDamage));
 
 		// Hook TESObjectWEAP::IsMeleeWeapon call in HitData::ReduceDamage
-		WriteRelCall(0x009B5F81, reinterpret_cast<std::uint32_t>(&Hook_IsMeleeWeapon_ReduceDamage));
+		//WriteRelCall(0x009B5F81, reinterpret_cast<std::uint32_t>(&Hook_IsMeleeWeapon_ReduceDamage));
 
 		// Hook Animation::GetOffset call in Animation::Update
 		// Resolves reloads not triggering after power attack
 		GetOffsetDetour.WriteRelCall(0x00491E05, reinterpret_cast<std::uint32_t>(&Hook_GetOffset));
+
+		// Hook Actor::HitMe call to inject dummy projectile for JIP compatibility
+		// Enables script effects/scripts when using JIP
+		//HitMeDetour.WriteRelCall(0x0089A738, reinterpret_cast<std::uint32_t>(&Hook_HitMe));
 	}
 }
