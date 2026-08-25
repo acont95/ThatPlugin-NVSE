@@ -61,7 +61,7 @@ CommonLib::Tile* __fastcall Hook_ObjectHit(CommonLib::Actor* actor, void* edx, b
 	if (shouldUseAmmo && weapon && isBallisticMelee(weapon)) {
 		bool isAutomatic = (weapon->data.cFlags >> 1) & 1;
 		if (result || isAutomatic) {
-			ThisStdCall<void>(Actor_UseAmmo_Addr, actor, 1);
+			actor->UseAmmo(1);
 		}
 	}
 
@@ -88,7 +88,7 @@ void __fastcall Hook_CombatHit(
 	bool shouldUseAmmo = ThisStdCall<bool>(Actor_ShouldUseAmmo_Addr, actor, weapon);
 
 	if (shouldUseAmmo && weapon && isBallisticMelee(weapon)) {
-		ThisStdCall<void>(Actor_UseAmmo_Addr, actor, 1);
+		actor->UseAmmo(1);
 	}
 }
 
