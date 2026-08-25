@@ -23,20 +23,19 @@ constexpr char CONFIG_SECTION[] = "BallisticMelee";
 CallDetour ObjectHitDetour{};
 CallDetour CombatHitDetour{};
 CallDetour GetCurrentAmmoDetour{};
-CallDetour ReduceDamageDetour{};
 CallDetour GetOffsetDetour{};
-CallDetour HitMeDetour{};
+CallDetour GetExtraDataDetour{};
 
 constexpr std::uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
 constexpr std::uint32_t Actor_ShouldUseAmmo_Addr = 0x008A8DD0;
 constexpr std::uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
 constexpr std::uint32_t Projectile_Constructor_Addr = 0x009BBEF0;
+constexpr std::uint32_t Projectile_Destructor_Addr = 0x009BC470;
 constexpr std::uint32_t TESForm_SetTemporary_Addr = 0x00484490;
 constexpr std::uint32_t Animation_PlayGroup_Addr = 0x00494740;
 constexpr std::uint32_t PlayerCharacter_StartAnimOn1stPerson_Addr = 0x009520F0;
 constexpr std::uint32_t Actor_SetAnimAction_Addr = 0x008A73E0;
 constexpr std::uint32_t TESAnimGroup_GetTime_Addr = 0x005F3780;
-constexpr std::uint32_t Animation_GetSequence_Addr = 0x00491040;
 constexpr std::uint32_t BSAnimGroupSequence_GetAnimGroup_Addr = 0x0048F7F0;
 constexpr std::uint32_t Actor_GetLocationOnReference_Addr = 0x008AE4C0;
 
@@ -101,42 +100,69 @@ CommonLib::TESAmmo* __fastcall Hook_GetCurrentAmmo(CommonLib::TESObjectWEAP* wea
 	return ThisStdCall<CommonLib::TESAmmo*>(GetCurrentAmmoDetour.GetOverwrittenAddr(), weapon, apWeaponHolder);
 }
 
-
-void __fastcall Hook_HitMe(CommonLib::Actor* pActor, void* edx, CommonLib::HitData* pHitData, char cMeleeEffect)
+CommonLib::ExtraDataList* __fastcall Hook_GetExtraData_JIP(CommonLib::TESObjectREFR* apReference, void* edx)
 {
+	// Actor::HitMe uses ebx as base pointer, not ebp
+	std::uintptr_t pEbx;
+	__asm mov pEbx, ebx;
+
+	CommonLib::HitData* pHitData = *reinterpret_cast<CommonLib::HitData**>(pEbx + 0x8);
 	CommonLib::TESObjectWEAP* apFromWeapon = pHitData->pWeapon;
-	CommonLib::TESObjectREFR* pOriginalSource = pHitData->pSourceRef;
 
 	if (apFromWeapon && isBallisticMelee(apFromWeapon)) {
 		CommonLib::BGSProjectile* apProjectileBase = apFromWeapon->data.pProjectile;
 		CommonLib::Actor* apShooter = pHitData->pAggressor;
-
 		if (apProjectileBase && apShooter) {
 			CommonLib::NiPoint3 locationOnRef = *ThisStdCall<CommonLib::NiPoint3*>(Actor_GetLocationOnReference_Addr, apShooter);
-
-			alignas(CommonLib::Projectile) std::byte projAlloc[sizeof(CommonLib::Projectile)];
-			CommonLib::Projectile* projectile = reinterpret_cast<CommonLib::Projectile*>(projAlloc);
-			ThisStdCall<void>(
-				Projectile_Constructor_Addr,
-				projectile,
+			CommonLib::Projectile* projectile = New<CommonLib::Projectile, Projectile_Constructor_Addr>(
 				apProjectileBase,
 				apShooter,
 				apFromWeapon,
-				locationOnRef, // Set projectile location to aggressor location for blocking calculations
+				locationOnRef,
 				0.0f,
 				0.0f
 			);
 
 			projectile->cFormType = CommonLib::ENUM_FORM_ID::PROJ_ID;
 			ThisStdCall<void>(TESForm_SetTemporary_Addr, projectile);
-
-			// Set projectile on HitData for JIP compatability, needed for ammo scripts and effects to work
 			pHitData->pSourceRef = projectile;
 		}
 	}
 
-	ThisStdCall<void>(HitMeDetour.GetOverwrittenAddr(), pActor, pHitData, cMeleeEffect);
-	pHitData->pSourceRef = pOriginalSource;
+
+	return ThisStdCall<CommonLib::ExtraDataList*>(GetExtraDataDetour.GetOverwrittenAddr(), apReference);
+}
+
+
+void cleanupHitDataProjectile(CommonLib::HitData* apHitData) 
+{
+	if (apHitData) {
+		CommonLib::TESObjectREFR* pSourceRef = apHitData->pSourceRef;
+		CommonLib::TESObjectWEAP* apFromWeapon = apHitData->pWeapon;
+
+		if (apFromWeapon && isBallisticMelee(apFromWeapon) && pSourceRef && pSourceRef->IsProjectile()) {
+			Delete<CommonLib::Projectile, Projectile_Destructor_Addr>(static_cast<CommonLib::Projectile*>(pSourceRef));
+			apHitData->pSourceRef = nullptr;
+		}
+	}
+}
+
+
+__declspec(naked) void RemoveHitDataProjectileHook_JIP()
+{
+	__asm
+	{
+		mov     eax, [ebx + 8]
+		push    eax
+		call    cleanupHitDataProjectile
+		add     esp, 4
+
+		mov     byte ptr[ebp - 61h], 0
+		mov     eax, [ebp - 18h]
+
+		mov edx, 0x0089AC62
+		jmp edx
+	}
 }
 
 
@@ -217,18 +243,13 @@ void installBallisticMeleeHooks() {
 		GetCurrentAmmoDetour.WriteRelCall(0x00948E0E, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentAmmo));
 		GetCurrentAmmoDetour.WriteRelCall(0x00949E39, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentAmmo));
 
-		// Hook HitData::ReduceDamage in HitData::InitializeHitData
-		//ReduceDamageDetour.WriteRelCall(0x009B5623, reinterpret_cast<std::uint32_t>(&Hook_ReduceDamage));
-
-		// Hook TESObjectWEAP::IsMeleeWeapon call in HitData::ReduceDamage
-		//WriteRelCall(0x009B5F81, reinterpret_cast<std::uint32_t>(&Hook_IsMeleeWeapon_ReduceDamage));
-
 		// Hook Animation::GetOffset call in Animation::Update
 		// Resolves reloads not triggering after power attack
 		GetOffsetDetour.WriteRelCall(0x00491E05, reinterpret_cast<std::uint32_t>(&Hook_GetOffset));
 
-		// Hook Actor::HitMe call to inject dummy projectile for JIP compatibility
+		// Hook Actor::HitMe to inject dummy projectile for JIP compatibility
 		// Enables script effects/scripts when using JIP
-		//HitMeDetour.WriteRelCall(0x0089A738, reinterpret_cast<std::uint32_t>(&Hook_HitMe));
+		GetExtraDataDetour.WriteRelCall(0x0089AB06, reinterpret_cast<std::uint32_t>(&Hook_GetExtraData_JIP));
+		WriteRelJump(0x0089AC5B, reinterpret_cast<std::uint32_t>(&RemoveHitDataProjectileHook_JIP));
 	}
 }
