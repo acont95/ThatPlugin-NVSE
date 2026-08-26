@@ -37,7 +37,7 @@ constexpr std::uint32_t PlayerCharacter_StartAnimOn1stPerson_Addr = 0x009520F0;
 constexpr std::uint32_t Actor_SetAnimAction_Addr = 0x008A73E0;
 constexpr std::uint32_t TESAnimGroup_GetTime_Addr = 0x005F3780;
 constexpr std::uint32_t BSAnimGroupSequence_GetAnimGroup_Addr = 0x0048F7F0;
-constexpr std::uint32_t Actor_GetLocationOnReference_Addr = 0x008AE4C0;
+
 
 bool isBallisticMelee(CommonLib::TESObjectWEAP* weapon) {
 	return weapon->data.eType <= CommonLib::WEAPON_TYPE::WEAPON_TWO_HAND_MELEE && weapon->pFormAmmo;
@@ -113,12 +113,11 @@ CommonLib::ExtraDataList* __fastcall Hook_GetExtraData_JIP(CommonLib::TESObjectR
 		CommonLib::BGSProjectile* apProjectileBase = apFromWeapon->data.pProjectile;
 		CommonLib::Actor* apShooter = pHitData->pAggressor;
 		if (apProjectileBase && apShooter) {
-			CommonLib::NiPoint3 locationOnRef = *ThisStdCall<CommonLib::NiPoint3*>(Actor_GetLocationOnReference_Addr, apShooter);
 			CommonLib::Projectile* projectile = New<CommonLib::Projectile, Projectile_Constructor_Addr>(
 				apProjectileBase,
 				apShooter,
 				apFromWeapon,
-				locationOnRef,
+				CommonLib::NiPoint3::ZERO,
 				0.0f,
 				0.0f
 			);
