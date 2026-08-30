@@ -14,6 +14,9 @@
 #include "Bethesda/InventoryChanges.hpp"
 #include "Bethesda/TESAnimGroup.hpp"
 #include "Bethesda/Animation.hpp"
+#include "Bethesda/VATS.hpp"
+#include "Bethesda/VATS_COMMAND.hpp"
+#include "Bethesda/BGSEntryPoint.hpp"
 #include "Gamebryo/NiPoint3.hpp"
 #include "BallisticMelee.hpp"
 #include "Globals.hpp"
@@ -25,6 +28,7 @@ CallDetour CombatHitDetour{};
 CallDetour GetCurrentAmmoDetour{};
 CallDetour GetOffsetDetour{};
 CallDetour GetExtraDataDetour{};
+CallDetour IsAutomaticDetour{};
 
 constexpr std::uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
 constexpr std::uint32_t Actor_ShouldUseAmmo_Addr = 0x008A8DD0;
@@ -37,7 +41,12 @@ constexpr std::uint32_t PlayerCharacter_StartAnimOn1stPerson_Addr = 0x009520F0;
 constexpr std::uint32_t Actor_SetAnimAction_Addr = 0x008A73E0;
 constexpr std::uint32_t TESAnimGroup_GetTime_Addr = 0x005F3780;
 constexpr std::uint32_t BSAnimGroupSequence_GetAnimGroup_Addr = 0x0048F7F0;
-
+constexpr std::uint32_t ActionPoints_IsAttackAction_Addr = 0x0066DDE0;
+constexpr std::uint32_t ItemChange_HasModEffectActive_Addr = 0x004BD8D0;
+constexpr std::uint32_t VATS_GetCurrentAction_Addr = 0x009C71C0;
+constexpr std::uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
+constexpr std::uint32_t BGSEntryPoint_HandleEntryPoint_Addr = 0x005E58F0;
+constexpr std::uint32_t BSRandom_RandomUnsignedInt_Addr = 0x00487F50;
 
 bool isBallisticMelee(CommonLib::TESObjectWEAP* weapon) {
 	return weapon->data.eType <= CommonLib::WEAPON_TYPE::WEAPON_TWO_HAND_MELEE && weapon->pFormAmmo;
@@ -51,17 +60,105 @@ bool __fastcall Hook_IsMeleeWeapon(CommonLib::TESObjectWEAP* weapon, void* edx)
 	return weapon->data.eType <= CommonLib::WEAPON_TYPE::WEAPON_TWO_HAND_MELEE;
 }
 
+int getShotCount(CommonLib::Actor* apActor) {
+	CommonLib::VATS* pVATS = CommonLib::VATS::GetVATSSingleton();
+	CommonLib::VATS_COMMAND* eVatsCurrentAction = nullptr;
+	CommonLib::Actor* pVATSAttacker = reinterpret_cast<CommonLib::Actor*>(0x011F21F0);
+	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+	float fVATSShotBurstAccumulator = *reinterpret_cast<float*>(0x011C9508);
 
-CommonLib::Tile* __fastcall Hook_ObjectHit(CommonLib::Actor* actor, void* edx, bool abPowerAttack)
+	if (apActor == nullptr || pVATS == nullptr) {
+		return 0;
+	}
+
+	if (pVATS && pVATS->eMode == CommonLib::VATS::VATS_MODE_ENUM::VATS_PLAYBACK && apActor == pVATSAttacker) {
+		eVatsCurrentAction = ThisStdCall<CommonLib::VATS_COMMAND*>(VATS_GetCurrentAction_Addr, pVATS);
+	}
+
+	bool bIsAttackAction = false;
+	if (eVatsCurrentAction && eVatsCurrentAction->cFakeFireShots)
+		bIsAttackAction = CdeclCall<bool>(ActionPoints_IsAttackAction_Addr, eVatsCurrentAction->eAction);
+
+	std::uint8_t ucShotsToFire = 1;
+	int iShotCount = 0;
+	CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
+	if (pCurrentProcess) {
+		ucShotsToFire = pCurrentProcess->GetShotsToFire();
+	}
+
+
+	while (ucShotsToFire) {
+		bool bFakeFire = bIsAttackAction
+			&& (fVATSShotBurstAccumulator < 0.0f && eVatsCurrentAction->cFakeFireShots || !eVatsCurrentAction->cFireShots);
+
+		if (!bFakeFire) {
+			++iShotCount;
+		}
+
+		--ucShotsToFire;
+	}
+
+	int iRegenSubtract = 0;
+	if (apActor == pPlayer) {
+		CommonLib::BaseProcess* pCurrentProcess = pPlayer->pCurrentProcess;
+		if (pCurrentProcess && pCurrentProcess->GetCurrentWeapon()) {
+			float fRegen = 0.0f;
+			CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+
+			std::uint8_t cModEffect = CommonLib::WEAPON_MOD_EFFECT::WEAPON_MOD_AMMO_REGEN_SHOT;
+			if (ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, cModEffect, &fRegen)) {
+				pPlayer->cShotsSinceLastAmmoRegen += iShotCount;
+
+				std::uint8_t iRegen = static_cast<std::uint8_t>(fRegen);
+				if (pPlayer->cShotsSinceLastAmmoRegen >= static_cast<int>(fRegen)) {
+					pPlayer->cShotsSinceLastAmmoRegen -= iRegen;
+					iRegenSubtract = 1;
+				}
+			}
+		}
+	}
+
+	return iShotCount - iRegenSubtract;
+}
+
+void spawnRandomShellCasing(CommonLib::Actor* apActor) {
+	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+	CommonLib::TESObjectWEAP* pCurrentWeapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, apActor);
+
+	if (apActor == pPlayer && pCurrentWeapon) {
+		CommonLib::TESAmmo* pCurrentAmmo = ThisStdCall<CommonLib::TESAmmo*>(TESObjectWEAP_GetCurrentAmmo_Addr, pCurrentWeapon, pPlayer);
+		if (pCurrentAmmo) {
+			CommonLib::TESForm* pConsumedObject = pCurrentAmmo->NVdata.pAmmoConsumedObject;
+			float fConsumedChance = pCurrentAmmo->NVdata.fAmmoConsumedChance;
+			CdeclCall<void>(
+				BGSEntryPoint_HandleEntryPoint_Addr, 
+				CommonLib::BGSEntryPoint::ENTRY_POINT::MODIFY_CHANCE_FOR_AMMO_ITEM, pPlayer, pCurrentWeapon, &fConsumedChance);
+
+			std::uint32_t iRandom = CdeclCall<std::uint32_t>(BSRandom_RandomUnsignedInt_Addr);
+			float fRandom = static_cast<float>(iRandom % 0x64);
+
+			if (pConsumedObject && fConsumedChance >= fRandom && pConsumedObject->IsBoundObject()) {
+				CommonLib::TESBoundObject* pBoundObject = static_cast<CommonLib::TESBoundObject*>(pConsumedObject);
+				if (pBoundObject) {
+					pPlayer->AddObjecttoContainer(pBoundObject, nullptr, 1);
+				}
+			}
+		}
+	}
+}
+
+CommonLib::Tile* __fastcall Hook_ObjectHit(CommonLib::Actor* apActor, void* edx, bool abPowerAttack)
 {
-	CommonLib::Tile* result = ThisStdCall<CommonLib::Tile*>(ObjectHitDetour.GetOverwrittenAddr(), actor, abPowerAttack);
-	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, actor);
-	bool shouldUseAmmo = ThisStdCall<bool>(Actor_ShouldUseAmmo_Addr, actor, weapon);
+	CommonLib::Tile* result = ThisStdCall<CommonLib::Tile*>(ObjectHitDetour.GetOverwrittenAddr(), apActor, abPowerAttack);
+	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, apActor);
+	bool shouldUseAmmo = ThisStdCall<bool>(Actor_ShouldUseAmmo_Addr, apActor, weapon);
 
 	if (shouldUseAmmo && weapon && isBallisticMelee(weapon)) {
 		bool isAutomatic = (weapon->data.cFlags >> 1) & 1;
 		if (result || isAutomatic) {
-			actor->UseAmmo(1);
+			int iShotCount = getShotCount(apActor);
+			apActor->UseAmmo(iShotCount);
+			spawnRandomShellCasing(apActor);
 		}
 	}
 
@@ -69,7 +166,7 @@ CommonLib::Tile* __fastcall Hook_ObjectHit(CommonLib::Actor* actor, void* edx, b
 }
 
 void __fastcall Hook_CombatHit(
-	CommonLib::Actor* actor,
+	CommonLib::Actor* apActor,
 	void* edx,
 	CommonLib::Actor* apTarget,
 	bool abPowerAttack,
@@ -78,17 +175,19 @@ void __fastcall Hook_CombatHit(
 {
 	ThisStdCall<void>(
 		CombatHitDetour.GetOverwrittenAddr(),
-		actor,
+		apActor,
 		apTarget,
 		abPowerAttack,
 		apProjectile,
 		cMeleeEffect);
 
-	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, actor);
-	bool shouldUseAmmo = ThisStdCall<bool>(Actor_ShouldUseAmmo_Addr, actor, weapon);
+	CommonLib::TESObjectWEAP* weapon = ThisStdCall<CommonLib::TESObjectWEAP*>(Actor_GetCurrentWeapon_Addr, apActor);
+	bool shouldUseAmmo = ThisStdCall<bool>(Actor_ShouldUseAmmo_Addr, apActor, weapon);
 
 	if (shouldUseAmmo && weapon && isBallisticMelee(weapon)) {
-		actor->UseAmmo(1);
+		int iShotCount = getShotCount(apActor);
+		apActor->UseAmmo(iShotCount);
+		spawnRandomShellCasing(apActor);
 	}
 }
 
@@ -226,6 +325,79 @@ float __fastcall Hook_GetOffset(CommonLib::Animation* pAnimation, void* edx, Com
 	return fOffset;
 }
 
+
+void decrementVATSFireShots(CommonLib::VATS_COMMAND* apVATSCommand, CommonLib::TESObjectWEAP* apWeapon, CommonLib::Actor* apActor)
+{
+	if (apWeapon && isBallisticMelee(apWeapon)) {
+		CommonLib::BaseProcess* pCurrentProcess = nullptr;
+		if (apActor) {
+			pCurrentProcess = apActor->pCurrentProcess;
+		}
+
+		std::uint8_t ucShotsToFire = 1;
+		if (pCurrentProcess) {
+			ucShotsToFire = pCurrentProcess->GetShotsToFire();
+		}
+		while (ucShotsToFire) {
+			std::uint8_t ucSubAmount = apWeapon->data.cAmmoPerShot > 0 ? apWeapon->data.cAmmoPerShot : 1;
+
+			if (apVATSCommand->cFireShots >= ucSubAmount) {
+				apVATSCommand->cFireShots -= ucSubAmount;
+			}
+			else {
+				apVATSCommand->cFireShots = 0;
+			}
+
+			--ucShotsToFire;
+		}
+	}
+	else
+	{
+		--apVATSCommand->cFireShots;
+	}
+}
+
+
+__declspec(naked) void DecrementFireShotsNonAutoHook()
+{
+	__asm
+	{
+		mov     eax, [ebp - 0x9C]
+		push    eax
+		mov     eax, [ebp - 0x24]
+		push    eax
+		mov     eax, [ebp - 0x4]
+		push    eax
+
+		call    decrementVATSFireShots
+		add     esp, 0xC
+
+		mov edx, 0x00948643
+		jmp edx
+	}
+}
+
+
+__declspec(naked) void DecrementFireShotsAutoHook()
+{
+	__asm
+	{
+		mov     eax, [ebp - 0x12C]
+		push    eax
+		mov     eax, [ebp - 0x2C]
+		push    eax
+		mov     eax, [ebp - 0x28]
+		push    eax
+
+		call    decrementVATSFireShots
+		add     esp, 0xC
+
+		mov edx, 0x0089931A
+		jmp edx
+	}
+}
+
+
 void installBallisticMeleeHooks() {
 	if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bEnabled")) {
 		// Hook TESObjectWEAP::IsMeleeWeapon call in HUDMainMenu::UpdateWeaponStatus
@@ -250,5 +422,11 @@ void installBallisticMeleeHooks() {
 		// Enables script effects/scripts when using JIP
 		GetExtraDataDetour.WriteRelCall(0x0089AB06, reinterpret_cast<std::uint32_t>(&Hook_GetExtraData_JIP));
 		WriteRelJump(0x0089AC5B, reinterpret_cast<std::uint32_t>(&RemoveHitDataProjectileHook_JIP));
+
+		// Hook Actor::MeleeAttack and PlayerCharacter::CheckUserInputAttacks to decrease 
+		// current VATS_COMMAND->cFireShots using weapon form cAmmoPerShot. Vanilla game will
+		// attack for each melee/unarmed cAmmoPerShot in VATS.
+		WriteRelJump(0x00948634, reinterpret_cast<std::uint32_t>(&DecrementFireShotsNonAutoHook));
+		WriteRelJump(0x0089930B, reinterpret_cast<std::uint32_t>(&DecrementFireShotsAutoHook));
 	}
 }
