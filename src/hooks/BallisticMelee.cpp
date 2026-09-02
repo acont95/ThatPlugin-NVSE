@@ -47,6 +47,7 @@ constexpr std::uint32_t VATS_GetCurrentAction_Addr = 0x009C71C0;
 constexpr std::uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
 constexpr std::uint32_t BGSEntryPoint_HandleEntryPoint_Addr = 0x005E58F0;
 constexpr std::uint32_t BSRandom_RandomUnsignedInt_Addr = 0x00487F50;
+constexpr std::uint32_t Animation_FindSwitchKey_Addr = 0x00495E40;
 
 bool isBallisticMelee(CommonLib::TESObjectWEAP* weapon) {
 	return weapon->data.eType <= CommonLib::WEAPON_TYPE::WEAPON_TWO_HAND_MELEE && weapon->pFormAmmo;
@@ -76,26 +77,16 @@ int getShotCount(CommonLib::Actor* apActor) {
 	}
 
 	bool bIsAttackAction = false;
-	if (eVatsCurrentAction && eVatsCurrentAction->cFakeFireShots)
+	if (eVatsCurrentAction)
 		bIsAttackAction = CdeclCall<bool>(ActionPoints_IsAttackAction_Addr, eVatsCurrentAction->eAction);
 
-	std::uint8_t ucShotsToFire = 1;
 	int iShotCount = 0;
-	CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
-	if (pCurrentProcess) {
-		ucShotsToFire = pCurrentProcess->GetShotsToFire();
-	}
-
-
-	while (ucShotsToFire) {
-		bool bFakeFire = bIsAttackAction
-			&& (fVATSShotBurstAccumulator < 0.0f && eVatsCurrentAction->cFakeFireShots || !eVatsCurrentAction->cFireShots);
-
-		if (!bFakeFire) {
-			++iShotCount;
+	if (bIsAttackAction && eVatsCurrentAction && eVatsCurrentAction->cFireShots) {
+		iShotCount = 1;
+		CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
+		if (pCurrentProcess) {
+			iShotCount = pCurrentProcess->GetShotsToFire();
 		}
-
-		--ucShotsToFire;
 	}
 
 	int iRegenSubtract = 0;
@@ -292,10 +283,17 @@ float __fastcall Hook_GetOffset(CommonLib::Animation* pAnimation, void* edx, Com
 			return fOffset;
 		}
 
+		float switchKeyTime = 0.0f;
+		ThisStdCall<char>(Animation_FindSwitchKey_Addr, pAnimation, &switchKeyTime);
+		//Console_Print("Switch key time %f", switchKeyTime);
+
 		float fCurrActionTime = ThisStdCall<float>(TESAnimGroup_GetTime_Addr, pAnimGroup, pAnimation->action[eSection]);
 		float fNextActionTime = ThisStdCall<float>(TESAnimGroup_GetTime_Addr, pAnimGroup, pAnimation->action[eSection] + 1);
 
-		if (fOffset >= fCurrActionTime + (fNextActionTime - fCurrActionTime) * 0.5f) {
+		if ((switchKeyTime > 0.0f && fOffset >= switchKeyTime) 
+			|| (switchKeyTime <= 0.0f && fOffset >= fCurrActionTime + (fNextActionTime - fCurrActionTime) * 0.5f)) 
+		{
+			Console_Print("Trigger Time: %f", fOffset);
 			ThisStdCall<CommonLib::BSAnimGroupSequence*>(
 				Animation_PlayGroup_Addr,
 				pAnimation,
