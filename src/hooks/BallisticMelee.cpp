@@ -18,6 +18,8 @@
 #include "Bethesda/VATS_COMMAND.hpp"
 #include "Bethesda/BGSEntryPoint.hpp"
 #include "Gamebryo/NiPoint3.hpp"
+#include "Gamebryo/NiTextKeyExtraData.hpp"
+#include "Gamebryo/NiTextKey.hpp"
 #include "BallisticMelee.hpp"
 #include "Globals.hpp"
 
@@ -47,7 +49,8 @@ constexpr std::uint32_t VATS_GetCurrentAction_Addr = 0x009C71C0;
 constexpr std::uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
 constexpr std::uint32_t BGSEntryPoint_HandleEntryPoint_Addr = 0x005E58F0;
 constexpr std::uint32_t BSRandom_RandomUnsignedInt_Addr = 0x00487F50;
-constexpr std::uint32_t Animation_FindSwitchKey_Addr = 0x00495E40;
+constexpr std::uint32_t NiControllerSequence_GetTextKeys_Addr = 0x00700300;
+constexpr std::uint32_t NiTextKeyExtraData_GetKeys_Addr = 0x00495F30;
 
 bool isBallisticMelee(CommonLib::TESObjectWEAP* weapon) {
 	return weapon->data.eType <= CommonLib::WEAPON_TYPE::WEAPON_TWO_HAND_MELEE && weapon->pFormAmmo;
@@ -62,31 +65,16 @@ bool __fastcall Hook_IsMeleeWeapon(CommonLib::TESObjectWEAP* weapon, void* edx)
 }
 
 int getShotCount(CommonLib::Actor* apActor) {
-	CommonLib::VATS* pVATS = CommonLib::VATS::GetVATSSingleton();
-	CommonLib::VATS_COMMAND* eVatsCurrentAction = nullptr;
-	CommonLib::Actor* pVATSAttacker = reinterpret_cast<CommonLib::Actor*>(0x011F21F0);
 	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
-	float fVATSShotBurstAccumulator = *reinterpret_cast<float*>(0x011C9508);
 
-	if (apActor == nullptr || pVATS == nullptr) {
+	if (apActor == nullptr) {
 		return 0;
 	}
 
-	if (pVATS && pVATS->eMode == CommonLib::VATS::VATS_MODE_ENUM::VATS_PLAYBACK && apActor == pVATSAttacker) {
-		eVatsCurrentAction = ThisStdCall<CommonLib::VATS_COMMAND*>(VATS_GetCurrentAction_Addr, pVATS);
-	}
-
-	bool bIsAttackAction = false;
-	if (eVatsCurrentAction)
-		bIsAttackAction = CdeclCall<bool>(ActionPoints_IsAttackAction_Addr, eVatsCurrentAction->eAction);
-
-	int iShotCount = 0;
-	if (bIsAttackAction && eVatsCurrentAction && eVatsCurrentAction->cFireShots) {
-		iShotCount = 1;
-		CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
-		if (pCurrentProcess) {
-			iShotCount = pCurrentProcess->GetShotsToFire();
-		}
+	int iShotCount = 1;
+	CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
+	if (pCurrentProcess) {
+		iShotCount = pCurrentProcess->GetShotsToFire();
 	}
 
 	int iRegenSubtract = 0;
@@ -255,6 +243,26 @@ __declspec(naked) void RemoveHitDataProjectileHook_JIP()
 }
 
 
+static bool findPowerAttackReloadKeyTime(CommonLib::BSAnimGroupSequence* apSequence, float& afTime) {
+	const char* pcKey = "PowerAttackReload";
+
+	CommonLib::NiTextKeyExtraData* pTextKeyExtraData = ThisStdCall<CommonLib::NiTextKeyExtraData*>(NiControllerSequence_GetTextKeys_Addr, apSequence);
+	unsigned int iNumKeys = 0;
+	CommonLib::NiTextKey* pTextKey = ThisStdCall<CommonLib::NiTextKey*>(NiTextKeyExtraData_GetKeys_Addr, pTextKeyExtraData, &iNumKeys);
+	
+
+	for (unsigned int i = 0; i < iNumKeys; i++) {
+		const char* pcKeyString = pTextKey[i].m_kText.m_kHandle;
+		if (pcKeyString && _stricmp(pcKeyString, pcKey) == 0) {
+			afTime = pTextKey[i].m_fTime;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
 float __fastcall Hook_GetOffset(CommonLib::Animation* pAnimation, void* edx, CommonLib::BSAnimGroupSequence* apSequence)
 {
 	float fOffset = ThisStdCall<float>(GetOffsetDetour.GetOverwrittenAddr(), pAnimation, apSequence);
@@ -283,17 +291,19 @@ float __fastcall Hook_GetOffset(CommonLib::Animation* pAnimation, void* edx, Com
 			return fOffset;
 		}
 
-		float switchKeyTime = 0.0f;
-		ThisStdCall<char>(Animation_FindSwitchKey_Addr, pAnimation, &switchKeyTime);
-		//Console_Print("Switch key time %f", switchKeyTime);
+		float fReloadKeyTime = 0.0f;
+		bool bReloadKeyMatch = findPowerAttackReloadKeyTime(apSequence, fReloadKeyTime);
 
 		float fCurrActionTime = ThisStdCall<float>(TESAnimGroup_GetTime_Addr, pAnimGroup, pAnimation->action[eSection]);
 		float fNextActionTime = ThisStdCall<float>(TESAnimGroup_GetTime_Addr, pAnimGroup, pAnimation->action[eSection] + 1);
 
-		if ((switchKeyTime > 0.0f && fOffset >= switchKeyTime) 
-			|| (switchKeyTime <= 0.0f && fOffset >= fCurrActionTime + (fNextActionTime - fCurrActionTime) * 0.5f)) 
+		const float fThresholdTime = bReloadKeyMatch
+			? fReloadKeyTime
+			: fCurrActionTime + (fNextActionTime - fCurrActionTime) * 0.5f;
+
+
+		if (fOffset >= fThresholdTime)
 		{
-			Console_Print("Trigger Time: %f", fOffset);
 			ThisStdCall<CommonLib::BSAnimGroupSequence*>(
 				Animation_PlayGroup_Addr,
 				pAnimation,
