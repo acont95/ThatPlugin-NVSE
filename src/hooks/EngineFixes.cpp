@@ -5,11 +5,19 @@
 #include "Bethesda/PlayerCharacter.hpp"
 #include "Bethesda/BaseProcess.hpp"
 #include "Bethesda/TESObjectWEAP.hpp"
+#include "Bethesda/ItemChange.hpp"
 #include "Globals.hpp"
+#include "BallisticMelee.hpp"
 
 constexpr char CONFIG_SECTION[] = "EngineFixes";
+CallDetour GetCurrentAmmoSpinDetour{};
 
 constexpr std::uint32_t ItemChange_HasModEffectActive_Addr = 0x004BD8D0;
+constexpr std::uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
+constexpr std::uint32_t Animation_BlendOut_Addr = 0x004994F0;
+constexpr std::uint32_t PlayerCharacter_GetAnimation_Addr = 0x00950A60;
+constexpr std::uint32_t Actor_SetAnimAction_Addr = 0x008A73E0;
+constexpr std::uint32_t Animation_GetGroup_Addr = 0x004301B0;
 
 int getRegenValue(CommonLib::Actor* apActor, int aiShotCount) 
 {
@@ -60,6 +68,74 @@ __declspec(naked) void Hook_FixWeaponModAmmoRegen()
 	}
 }
 
+void testCall() {
+	Console_Print("CLEAR");
+}
+
+__declspec(naked) void Hook_FixAutoFireSpin()
+{
+	__asm
+	{
+		cmp byte ptr[ebp - 0DDh], 0
+		jnz skip_call
+
+		push    0
+		mov     edx, [ebp - 18h]
+		mov     eax, [edx + 68h]
+		mov     ecx, [ebp - 18h]
+		mov     ecx, [ecx + 68h]
+		mov     edx, [eax]
+		mov     eax, [edx + 434h]
+		call    eax
+		call    testCall
+
+	skip_call :
+		mov     edx, [ebp - 18h]
+		mov     eax, [edx + 68h]
+
+		mov edx, 0x0093FB73
+		jmp edx
+	}
+}
+
+static CommonLib::TESAmmo* __fastcall Hook_GetCurrentAmmo(CommonLib::TESObjectWEAP* weapon, void* edx, CommonLib::PlayerCharacter* apWeaponHolder)
+{
+	CommonLib::TESAmmo* result = ThisStdCall<CommonLib::TESAmmo*>(GetCurrentAmmoSpinDetour.GetOverwrittenAddr(), weapon, apWeaponHolder);
+
+	CommonLib::ItemChange* pAmmoItemChange = apWeaponHolder->pCurrentProcess->GetCurrentAmmo();
+	if (result && pAmmoItemChange) {
+		int iAmmoCount = pAmmoItemChange->iNumber;
+
+		if (iAmmoCount < weapon->data.cAmmoPerShot) {
+
+			CommonLib::Animation* pAnimation1st = ThisStdCall<CommonLib::Animation*>(PlayerCharacter_GetAnimation_Addr, apWeaponHolder, true);
+			CommonLib::Animation* pAnimation3rd = ThisStdCall<CommonLib::Animation*>(PlayerCharacter_GetAnimation_Addr, apWeaponHolder, false);
+
+			std::uint16_t usAnimGroupWeapon = ThisStdCall<std::uint16_t>(Animation_GetGroup_Addr, 
+				apWeaponHolder->b3rdPerson ? pAnimation3rd : pAnimation1st, 
+				CommonLib::AGS_WEAPON);
+
+			std::uint8_t usAnimGroupType = static_cast<std::uint8_t>(usAnimGroupWeapon);
+			Console_Print("Anim group type: %d", usAnimGroupType);
+
+			CommonLib::ANIM_GROUP_INFO* pAnimGroupInfo = reinterpret_cast<CommonLib::ANIM_GROUP_INFO*>(0x011977D8);
+			CommonLib::ANIM_GROUP_ACTION_TYPE eActionType = pAnimGroupInfo[usAnimGroupType].eAction;
+
+			if (eActionType == CommonLib::AGAT_ATTACK_SPIN) {
+				ThisStdCall<void>(Actor_SetAnimAction_Addr, apWeaponHolder, CommonLib::ANIM_ACTION_ATTACK_FOLLOW_THROUGH, nullptr);
+			}
+			else {
+				ThisStdCall<void>(Actor_SetAnimAction_Addr, apWeaponHolder, CommonLib::ANIM_ACTION_NONE, nullptr);
+			}
+
+			ThisStdCall<void>(Animation_BlendOut_Addr, pAnimation1st, CommonLib::AGS_WEAPON, false);
+			ThisStdCall<void>(Animation_BlendOut_Addr, pAnimation3rd, CommonLib::AGS_WEAPON, false);
+		}
+	}
+
+	return result;
+}
+
 void installEngineFixes() 
 {
 	if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bEnabled")) {
@@ -68,5 +144,10 @@ void installEngineFixes()
 			WriteRelJump(0x005247E5, reinterpret_cast<std::uint32_t>(&Hook_FixWeaponModAmmoRegen));
 			PatchMemoryNop(0x005247EA, 5);
 		}
+
+		//WriteRelJump(0x0093FB6D, reinterpret_cast<std::uint32_t>(&Hook_FixAutoFireSpin));
+		//PatchMemoryNop(0x0093FB72, 1);
+
+		GetCurrentAmmoSpinDetour.WriteRelCall(0x0093FB10, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentAmmo));
 	}
 }
