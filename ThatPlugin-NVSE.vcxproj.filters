@@ -120,6 +120,9 @@
     <ClCompile Include="src\hooks\PersistReferenceScale.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\hooks\EngineFixes.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\BallisticMelee.hpp">
@@ -138,6 +141,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\PersistReferenceScale.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\EngineFixes.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

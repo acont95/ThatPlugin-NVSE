@@ -88,7 +88,7 @@ int getShotCount(CommonLib::Actor* apActor) {
 			if (ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, cModEffect, &fRegen)) {
 				pPlayer->cShotsSinceLastAmmoRegen += iShotCount;
 
-				std::uint8_t iRegen = static_cast<std::uint8_t>(fRegen);
+				const int iRegen = static_cast<int>(fRegen);
 				if (pPlayer->cShotsSinceLastAmmoRegen >= static_cast<int>(fRegen)) {
 					pPlayer->cShotsSinceLastAmmoRegen -= iRegen;
 					iRegenSubtract = 1;
@@ -430,11 +430,14 @@ void installBallisticMeleeHooks() {
 		// Enables script effects/scripts when using JIP
 		GetExtraDataDetour.WriteRelCall(0x0089AB06, reinterpret_cast<std::uint32_t>(&Hook_GetExtraData_JIP));
 		WriteRelJump(0x0089AC5B, reinterpret_cast<std::uint32_t>(&RemoveHitDataProjectileHook_JIP));
+		PatchMemoryNop(0x0089ac60, 2);
 
 		// Hook Actor::MeleeAttack and PlayerCharacter::CheckUserInputAttacks to decrease 
 		// current VATS_COMMAND->cFireShots using weapon form cAmmoPerShot. Vanilla game will
 		// attack for each melee/unarmed cAmmoPerShot in VATS.
 		WriteRelJump(0x00948634, reinterpret_cast<std::uint32_t>(&DecrementFireShotsNonAutoHook));
+		PatchMemoryNop(0x00948639, 1);
 		WriteRelJump(0x0089930B, reinterpret_cast<std::uint32_t>(&DecrementFireShotsAutoHook));
+		PatchMemoryNop(0x00899310, 1);
 	}
 }

@@ -13,6 +13,7 @@
 #include "BottomlessClip.hpp"
 #include "GuidedProjectiles.hpp"
 #include "PersistReferenceScale.hpp"
+#include "EngineFixes.hpp"
 #include "SimpleIni.h"
 #include "Globals.hpp"
 
@@ -157,6 +158,7 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 		installBottomlessClipHooks();
 		installGuidedProjectilesHook();
 		installPersistReferenceScaleHooks();
+		installEngineFixes();
 	}
 
 	return true;
