@@ -12,6 +12,7 @@
 #include "Globals.hpp"
 
 constexpr char CONFIG_SECTION[] = "BetterCounter";
+constexpr char INF_STR[] = "INF";
 
 CallDetour GetFormClipRoundsDetour{};
 
@@ -19,6 +20,7 @@ constexpr std::uint32_t Actor_GetCurrentWeapon_Addr = 0x008A1710;
 constexpr std::uint32_t TESObjectWEAP_GetFormClipRounds_Addr = 0x004FE160;
 constexpr std::uint32_t Process_GetCurrentWeapon_Addr = 0x008D81E0;
 constexpr std::uint32_t ItemChange_HasModEffectActive_Addr = 0x004BDA70;
+constexpr std::uint32_t TESObjectWEAP_GetAmmoRegenRate_Addr = 0x00709430;
 
 
 int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
@@ -48,6 +50,7 @@ int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 	CommonLib::ItemChange* weaponItemChange = ThisStdCall<CommonLib::ItemChange*>(Process_GetCurrentWeapon_Addr, pPlayer->pCurrentProcess);
 
 	int clipSize = 0;
+	float fRegenRate = 0.0f;
 	if (weaponItemChange) {
 		bool hasModEffectActive = ThisStdCall<bool>(
 			ItemChange_HasModEffectActive_Addr,
@@ -55,17 +58,18 @@ int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 			CommonLib::WEAPON_MOD_EFFECT::WEAPON_MOD_INCREASE_CLIP_SIZE
 		);
 		clipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, weaponItemChange->pContainerObj, hasModEffectActive);
+		fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, weaponItemChange->pContainerObj, true);
 	}
 
 	if (hideCounter) {
 		return snprintf(Buffer, BufferCount, "");
 	}
 
-	if (addClipToTotal) {
+	if (addClipToTotal && fRegenRate <= 0.0f) {
 		reserveCount += clipCount;
 	}
 
-	if (replaceTotalWithMagCount && clipSize) {
+	if (replaceTotalWithMagCount && clipSize && fRegenRate <= 0.0f) {
 		reserveCount /= clipSize;
 	}
 
@@ -73,16 +77,16 @@ int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 		return snprintf(Buffer, BufferCount, noReserveDisplay, clipCount);
 	}
 
-	if (hideReserve && showClipSize) {
+	if (hideReserve && showClipSize && fRegenRate <= 0.0f) {
 		if (clipSize == (std::numeric_limits<int>::max)()) {
-			return snprintf(Buffer, BufferCount, baseDisplayS, clipCount, clipSeperator, "INF");
+			return snprintf(Buffer, BufferCount, baseDisplayS, clipCount, clipSeperator, INF_STR);
 		}
 		return snprintf(Buffer, BufferCount, baseDisplay, clipCount, clipSeperator, clipSize);
 	}
 
-	if (!hideReserve && showClipSize) {
+	if (!hideReserve && showClipSize && fRegenRate <= 0.0f) {
 		if (clipSize == (std::numeric_limits<int>::max)()) {
-			return snprintf(Buffer, BufferCount, clipCountDisplayS, clipCount, clipSeperator, "INF", reserveSeperator, reserveCount);
+			return snprintf(Buffer, BufferCount, clipCountDisplayS, clipCount, clipSeperator, INF_STR, reserveSeperator, reserveCount);
 		}
 		return snprintf(Buffer, BufferCount, clipCountDisplay, clipCount, clipSeperator, clipSize, reserveSeperator, reserveCount);
 	}
