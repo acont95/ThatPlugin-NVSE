@@ -30,7 +30,6 @@ CallDetour CombatHitDetour{};
 CallDetour GetCurrentAmmoDetour{};
 CallDetour GetOffsetDetour{};
 CallDetour GetExtraDataDetour{};
-CallDetour IsAutomaticDetour{};
 
 constexpr std::uint32_t Actor_UseAmmo_Addr = 0x008A89A0;
 constexpr std::uint32_t Actor_ShouldUseAmmo_Addr = 0x008A8DD0;
