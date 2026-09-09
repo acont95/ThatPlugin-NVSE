@@ -6,18 +6,30 @@
 #include "Bethesda/BaseProcess.hpp"
 #include "Bethesda/TESObjectWEAP.hpp"
 #include "Bethesda/ItemChange.hpp"
+#include "Bethesda/InventoryChanges.hpp"
 #include "Globals.hpp"
 #include "BallisticMelee.hpp"
 
 constexpr char CONFIG_SECTION[] = "EngineFixes";
-CallDetour GetAmmoSwapHelperDetour{};
+CallDetour EquipObjectDetour{};
+CallDetour IntMinEquipDetour{};
+CallDetour IntMinReloadDetour{};
+CallDetour AddWornDetour{};
+CallDetour GetObjectCountDetour{};
 
-constexpr std::uint32_t ItemChange_HasModEffectActive_Addr = 0x004BD8D0;
+
+constexpr std::uint32_t ItemChange_HasModEffectActive_Addr = 0x004BDA70;
+constexpr std::uint32_t ItemChange_HasModEffectActiveF_Addr = 0x004BD8D0;
 constexpr std::uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
 constexpr std::uint32_t Animation_BlendOut_Addr = 0x004994F0;
 constexpr std::uint32_t PlayerCharacter_GetAnimation_Addr = 0x00950A60;
 constexpr std::uint32_t Actor_SetAnimAction_Addr = 0x008A73E0;
 constexpr std::uint32_t Animation_GetGroup_Addr = 0x004301B0;
+constexpr std::uint32_t TESObjectWEAP_GetFormClipRounds_Addr = 0x004FE160;
+constexpr std::uint32_t TESObjectWEAP_GetAmmoRegenRate_Addr = 0x00709430;
+
+constexpr std::uint32_t TESObjectWEAP_GetModEffect_Addr = 0x004BD880;
+constexpr std::uint32_t ExtraDataList_GetWeaponModSlotActive_Addr = 0x00418C00;
 
 int getRegenValue(CommonLib::Actor* apActor, int aiShotCount) 
 {
@@ -35,7 +47,7 @@ int getRegenValue(CommonLib::Actor* apActor, int aiShotCount)
 			CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
 
 			std::uint8_t cModEffect = CommonLib::WEAPON_MOD_EFFECT::WEAPON_MOD_AMMO_REGEN_SHOT;
-			if (ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, cModEffect, &fRegen)) {
+			if (ThisStdCall<bool>(ItemChange_HasModEffectActiveF_Addr, pCurrentWeapon, cModEffect, &fRegen)) {
 				pPlayer->cShotsSinceLastAmmoRegen += aiShotCount;
 
 				const int iRegen = static_cast<int>(fRegen);
@@ -102,17 +114,177 @@ __declspec(naked) void Hook_NoAmmoSwapWithoutReload()
 	__asm
 	{
 		mov    [ebp - 15Fh], dl
-		test dl, dl
-		jz  skip_call
+		test   dl, dl
+		jz     skip_call
 
-		mov edx, 0x00940B03
-		jmp edx
+		mov    edx, 0x00940B03
+		jmp    edx
 
-	skip_call :
-		mov edx, 0x00940B15
-		jmp edx
+	skip_call:
+		mov    edx, 0x00940B15
+		jmp    edx
 	}
 }
+
+
+
+bool isWeaponModActive(CommonLib::TESObjectWEAP* apWeapon, CommonLib::ExtraDataList* apExtraData, CommonLib::WEAPON_MOD_EFFECT eModEffect) {
+	if (ThisStdCall<CommonLib::WEAPON_MOD_EFFECT>(TESObjectWEAP_GetModEffect_Addr, apWeapon, 1u) == eModEffect
+		&& ThisStdCall<bool>(ExtraDataList_GetWeaponModSlotActive_Addr, apExtraData, 1u))
+	{
+		return true;
+	}
+	else if (ThisStdCall<CommonLib::WEAPON_MOD_EFFECT>(TESObjectWEAP_GetModEffect_Addr, apWeapon, 2u) == eModEffect
+		&& ThisStdCall<bool>(ExtraDataList_GetWeaponModSlotActive_Addr, apExtraData, 2u))
+	{
+		return true;
+	}
+	else if (ThisStdCall<CommonLib::WEAPON_MOD_EFFECT>(TESObjectWEAP_GetModEffect_Addr, apWeapon, 4u) == eModEffect
+		&& ThisStdCall<bool>(ExtraDataList_GetWeaponModSlotActive_Addr, apExtraData, 4u))
+	{
+		return true;
+	}
+
+	return false;
+}
+
+bool skipReload(
+	CommonLib::TESObjectWEAP* apWeapon, CommonLib::ExtraDataList* apExtraData)
+{
+	if (apWeapon && apExtraData) {
+		bool bIsRegenMod = isWeaponModActive(apWeapon, apExtraData, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
+		float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, apWeapon, bIsRegenMod);
+		if (fRegenRate > 0.0f) {
+			Console_Print("SKIP");
+			return true;
+		}
+	}
+
+	Console_Print("NO SKIP");
+	return false;
+}
+
+__declspec(naked) void Hook_DeferReload()
+{
+	__asm
+	{
+		mov     eax, [ebp + 0x10]
+		push    eax
+		mov     eax, [ebp - 0x40]
+		push    eax
+		call    skipReload
+		add     esp, 8
+		test    al,  al
+		jnz      skip_call
+
+		push    1
+		movzx   edx, [ebp - 0x39]
+
+		mov     eax, 0x0088DF5C
+		jmp     eax
+
+	skip_call:
+		mov     eax, 0x0088DF73
+		jmp     eax
+	}
+}
+
+
+void __fastcall Hook_AddWorn(
+	CommonLib::InventoryChanges* apInventoryChanges, void* edx, CommonLib::TESBoundObject* apObject, 
+	int aiNumber, CommonLib::Actor* apActor, CommonLib::ExtraDataList* apExtraData, bool abLeft, bool abForceEquip)
+{
+	ThisStdCall<void>(AddWornDetour.GetOverwrittenAddr(), apInventoryChanges, apObject, aiNumber, apActor, apExtraData, abLeft, abForceEquip);
+
+	if (apObject && apExtraData) {
+		CommonLib::ENUM_FORM_ID eFormType =
+			static_cast<CommonLib::ENUM_FORM_ID>(apObject->cFormType);
+
+		if (eFormType == CommonLib::WEAP_ID) {
+			CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(apObject);
+			bool bIsRegenMod = isWeaponModActive(pWeapon, apExtraData, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
+			float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
+			if (fRegenRate > 0.0f) {
+				std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+				bool bMod = *reinterpret_cast<bool*>(ebp - 0x39);
+				Console_Print("RELOAD");
+				apActor->ReloadWeaponNV(pWeapon, 0, bMod, 1);
+			}
+		}
+	}
+}
+
+
+int __cdecl Hook_IntMinReload(int aiVal1, int aiVal2) {
+	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+	CommonLib::TESObjectWEAP* pWeapon = *reinterpret_cast<CommonLib::TESObjectWEAP**>(ebp + 0x8);
+	CommonLib::ItemChange* pWeaponItemChange = *reinterpret_cast<CommonLib::ItemChange**>(ebp - 0x14);
+
+	if (pWeapon && pWeaponItemChange) {
+		bool isRegen = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pWeaponItemChange, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
+		float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, isRegen);
+		if (fRegenRate > 0.0f) {
+			Console_Print("HOOK MIN RELOAD");
+			Console_Print("CLIP ROUNDS RELOAD %d", aiVal2);
+			return aiVal2;
+		}
+	}
+
+	return CdeclCall<int>(IntMinReloadDetour.GetOverwrittenAddr(), aiVal1, aiVal2);
+}
+
+
+int __cdecl Hook_IntMinEquip(int aiVal1, int aiVal2) {
+	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+	CommonLib::TESObjectWEAP* pWeapon = *reinterpret_cast<CommonLib::TESObjectWEAP**>(ebp - 0x54);
+	CommonLib::ItemChange* pWeaponItemChange = *reinterpret_cast<CommonLib::ItemChange**>(ebp - 0x4C);
+
+	if (pWeapon && pWeaponItemChange) {
+		bool isRegen = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pWeaponItemChange, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
+		float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, isRegen);
+		if (fRegenRate > 0.0f) {
+			Console_Print("HOOK MIN EQUIP");
+			Console_Print("CLIP ROUNDS EQUIP %d", aiVal1);
+			return aiVal1;
+		}
+	}
+
+	return CdeclCall<int>(IntMinEquipDetour.GetOverwrittenAddr(), aiVal1, aiVal2);
+}
+
+
+int __fastcall Hook_GetObjectCount(
+	CommonLib::InventoryChanges* apInventoryChanges, void* edx, CommonLib::TESBoundObject* apObject)
+{
+	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+	CommonLib::Actor* pActor = *reinterpret_cast<CommonLib::Actor**>(ebp - 0x80);
+
+	if (apObject && pActor) {
+		CommonLib::ENUM_FORM_ID eFormType =
+			static_cast<CommonLib::ENUM_FORM_ID>(apObject->cFormType);
+
+		if (eFormType == CommonLib::AMMO_ID) {
+			CommonLib::BaseProcess* pCurrentProcess = pActor->pCurrentProcess;
+			if (pCurrentProcess) {
+				CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+				if (pCurrentWeapon) {
+					CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+					bool bIsRegenMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
+
+					float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
+					if (fRegenRate > 0.0f) {
+						bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
+						int iClipSize = ThisStdCall<float>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
+						return iClipSize;
+					}
+				}
+			}
+		}
+	}
+
+	return ThisStdCall<int>(GetObjectCountDetour.GetOverwrittenAddr(), apInventoryChanges, apObject);
+}
+
 
 void installEngineFixes() 
 {
@@ -133,4 +305,14 @@ void installEngineFixes()
 		WriteRelJump(0x00940AFD, reinterpret_cast<std::uint32_t>(&Hook_NoAmmoSwapWithoutReload));
 		PatchMemoryNop(0x00940B02, 1);
 	}
+
+	
+	//WriteRelCall(0x0088DF71, reinterpret_cast<std::uint32_t>(&Hook_ReloadWeaponNV));
+	//AddWornDetour.WriteRelCall(0x0088DFFF, reinterpret_cast<std::uint32_t>(&Hook_AddWorn));
+	//IntMinReloadDetour.WriteRelCall(0x0095DA7A, reinterpret_cast<std::uint32_t>(&Hook_IntMinReload));
+	//IntMinEquipDetour.WriteRelCall(0x0088CE89, reinterpret_cast<std::uint32_t>(&Hook_IntMinEquip));
+	//WriteRelJump(0x0088DF56, reinterpret_cast<std::uint32_t>(&Hook_DeferReload));
+	//PatchMemoryNop(0x0088DF5B, 1);
+
+	GetObjectCountDetour.WriteRelCall(0x0088C9A9, reinterpret_cast<std::uint32_t>(&Hook_GetObjectCount));
 }
