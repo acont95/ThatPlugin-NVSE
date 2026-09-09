@@ -175,7 +175,7 @@ __declspec(naked) void Hook_DeferReload()
 		call    skipReload
 		add     esp, 8
 		test    al,  al
-		jnz      skip_call
+		jnz     skip_call
 
 		push    1
 		movzx   edx, [ebp - 0x39]
@@ -215,49 +215,66 @@ void __fastcall Hook_AddWorn(
 }
 
 
-int __cdecl Hook_IntMinReload(int aiVal1, int aiVal2) {
-	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
-	CommonLib::TESObjectWEAP* pWeapon = *reinterpret_cast<CommonLib::TESObjectWEAP**>(ebp + 0x8);
-	CommonLib::ItemChange* pWeaponItemChange = *reinterpret_cast<CommonLib::ItemChange**>(ebp - 0x14);
+bool IsRegen(CommonLib::Actor* apActor, CommonLib::TESBoundObject* apObject)
+{
+	if (apObject && apActor) {
+		CommonLib::ENUM_FORM_ID eFormType =
+			static_cast<CommonLib::ENUM_FORM_ID>(apObject->cFormType);
 
-	if (pWeapon && pWeaponItemChange) {
-		bool isRegen = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pWeaponItemChange, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
-		float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, isRegen);
-		if (fRegenRate > 0.0f) {
-			Console_Print("HOOK MIN RELOAD");
-			Console_Print("CLIP ROUNDS RELOAD %d", aiVal2);
-			return aiVal2;
+		if (eFormType == CommonLib::AMMO_ID) {
+			CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
+			if (pCurrentProcess) {
+				CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+				if (pCurrentWeapon) {
+					CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+					bool bIsRegenMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
+
+					float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
+					if (fRegenRate > 0.0f) {
+						return true;
+					}
+				}
+			}
 		}
 	}
 
-	return CdeclCall<int>(IntMinReloadDetour.GetOverwrittenAddr(), aiVal1, aiVal2);
+	return false;
 }
 
 
-int __cdecl Hook_IntMinEquip(int aiVal1, int aiVal2) {
-	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
-	CommonLib::TESObjectWEAP* pWeapon = *reinterpret_cast<CommonLib::TESObjectWEAP**>(ebp - 0x54);
-	CommonLib::ItemChange* pWeaponItemChange = *reinterpret_cast<CommonLib::ItemChange**>(ebp - 0x4C);
-
-	if (pWeapon && pWeaponItemChange) {
-		bool isRegen = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pWeaponItemChange, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
-		float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, isRegen);
-		if (fRegenRate > 0.0f) {
-			Console_Print("HOOK MIN EQUIP");
-			Console_Print("CLIP ROUNDS EQUIP %d", aiVal1);
-			return aiVal1;
-		}
-	}
-
-	return CdeclCall<int>(IntMinEquipDetour.GetOverwrittenAddr(), aiVal1, aiVal2);
-}
-
-
-int __fastcall Hook_GetObjectCount(
+int __fastcall Hook_GetObjectCount_Equip(
 	CommonLib::InventoryChanges* apInventoryChanges, void* edx, CommonLib::TESBoundObject* apObject)
 {
 	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
 	CommonLib::Actor* pActor = *reinterpret_cast<CommonLib::Actor**>(ebp - 0x80);
+	int* pAiNumber = reinterpret_cast<int*>(ebp + 0xC);
+
+	if (apObject && pActor) {
+
+		if (IsRegen(pActor, apObject)) {
+			CommonLib::BaseProcess* pCurrentProcess = pActor->pCurrentProcess;
+			if (pCurrentProcess) {
+				CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+				if (pCurrentWeapon) {
+					CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+					bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
+					int iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
+					*pAiNumber = 0;
+					return iClipSize;
+				}
+			}
+		}
+	}
+
+	return ThisStdCall<int>(GetObjectCountDetour.GetOverwrittenAddr(), apInventoryChanges, apObject);
+}
+
+
+int __fastcall Hook_GetObjectCount_Reload(
+	CommonLib::InventoryChanges* apInventoryChanges, void* edx, CommonLib::TESBoundObject* apObject)
+{
+	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+	CommonLib::Actor* pActor = *reinterpret_cast<CommonLib::Actor**>(ebp - 0x5C);
 
 	if (apObject && pActor) {
 		CommonLib::ENUM_FORM_ID eFormType =
@@ -274,7 +291,8 @@ int __fastcall Hook_GetObjectCount(
 					float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
 					if (fRegenRate > 0.0f) {
 						bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
-						int iClipSize = ThisStdCall<float>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
+						int iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
+						Console_Print("Object Count %d", iClipSize);
 						return iClipSize;
 					}
 				}
@@ -283,6 +301,57 @@ int __fastcall Hook_GetObjectCount(
 	}
 
 	return ThisStdCall<int>(GetObjectCountDetour.GetOverwrittenAddr(), apInventoryChanges, apObject);
+}
+
+int Hook_RegenAmmoCount(CommonLib::InventoryChanges* apInventoryChanges, CommonLib::TESBoundObject* apObject, int aiOriginalCount)
+{
+	CommonLib::TESObjectREFR* pRef = apInventoryChanges->pRef;
+	if (apObject && pRef && pRef->IsActor()) {
+		CommonLib::Actor* pActor = static_cast<CommonLib::Actor*>(pRef);
+
+		CommonLib::ENUM_FORM_ID eFormType =
+			static_cast<CommonLib::ENUM_FORM_ID>(apObject->cFormType);
+
+		if (eFormType == CommonLib::AMMO_ID) {
+			CommonLib::BaseProcess* pCurrentProcess = pActor->pCurrentProcess;
+			if (pCurrentProcess) {
+				CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+				if (pCurrentWeapon) {
+					CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+					bool bIsRegenMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
+
+					float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
+					if (fRegenRate > 0.0f) {
+						bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
+						int iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
+						return iClipSize;
+					}
+				}
+			}
+		}
+	}
+
+	return aiOriginalCount;
+}
+
+__declspec(naked) void Hook_GetObjectCount()
+{
+	__asm
+	{
+		mov     edx, [ebp - 0xC]
+		push    edx
+		mov     edx, [ebp + 0x8]
+		push    edx
+		mov     edx, [ebp - 0x10]
+		push    edx
+		call    Hook_RegenAmmoCount
+		add     esp, 0xC
+
+		mov     esp, ebp
+
+		mov     edx, 0x004C8FC5
+		jmp     edx
+	}
 }
 
 
@@ -307,12 +376,14 @@ void installEngineFixes()
 	}
 
 	
-	//WriteRelCall(0x0088DF71, reinterpret_cast<std::uint32_t>(&Hook_ReloadWeaponNV));
-	//AddWornDetour.WriteRelCall(0x0088DFFF, reinterpret_cast<std::uint32_t>(&Hook_AddWorn));
-	//IntMinReloadDetour.WriteRelCall(0x0095DA7A, reinterpret_cast<std::uint32_t>(&Hook_IntMinReload));
-	//IntMinEquipDetour.WriteRelCall(0x0088CE89, reinterpret_cast<std::uint32_t>(&Hook_IntMinEquip));
-	//WriteRelJump(0x0088DF56, reinterpret_cast<std::uint32_t>(&Hook_DeferReload));
-	//PatchMemoryNop(0x0088DF5B, 1);
+	// Defer the reload as it queues ammo equip in another thread, in practice current weapon ItemChange is usually set
+	// by the time ammo equip is called but this ensures it.
+	AddWornDetour.WriteRelCall(0x0088DFFF, reinterpret_cast<std::uint32_t>(&Hook_AddWorn));
+	WriteRelJump(0x0088DF56, reinterpret_cast<std::uint32_t>(&Hook_DeferReload));
+	PatchMemoryNop(0x0088DF5B, 1);
 
-	GetObjectCountDetour.WriteRelCall(0x0088C9A9, reinterpret_cast<std::uint32_t>(&Hook_GetObjectCount));
+	//GetObjectCountDetour.WriteRelCall(0x0088C9A9, reinterpret_cast<std::uint32_t>(&Hook_GetObjectCount_Equip));
+	//GetObjectCountDetour.WriteRelCall(0x0095D992, reinterpret_cast<std::uint32_t>(&Hook_GetObjectCount_Reload));
+
+	WriteRelJump(0x004C8FC0, reinterpret_cast<std::uint32_t>(&Hook_GetObjectCount));
 }
