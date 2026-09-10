@@ -123,6 +123,9 @@
     <ClCompile Include="src\hooks\EngineFixes.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="src\hooks\RegenAmmo.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\BallisticMelee.hpp">
@@ -144,6 +147,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\EngineFixes.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\RegenAmmo.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -52,13 +52,18 @@ int Hook_UIAmmoPrint(char* Buffer, size_t BufferCount, char* Format, ...)
 	int clipSize = 0;
 	float fRegenRate = 0.0f;
 	if (weaponItemChange) {
-		bool hasModEffectActive = ThisStdCall<bool>(
+		bool bHasClipSizeMod = ThisStdCall<bool>(
 			ItemChange_HasModEffectActive_Addr,
 			weaponItemChange,
 			CommonLib::WEAPON_MOD_EFFECT::WEAPON_MOD_INCREASE_CLIP_SIZE
 		);
-		clipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, weaponItemChange->pContainerObj, hasModEffectActive);
-		fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, weaponItemChange->pContainerObj, true);
+		bool bHasRegenMod = ThisStdCall<bool>(
+			ItemChange_HasModEffectActive_Addr,
+			weaponItemChange,
+			CommonLib::WEAPON_MOD_EFFECT::WEAPON_MOD_AMMO_REGEN_SECONDS
+		);
+		clipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, weaponItemChange->pContainerObj, bHasClipSizeMod);
+		fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, weaponItemChange->pContainerObj, bHasRegenMod);
 	}
 
 	if (hideCounter) {

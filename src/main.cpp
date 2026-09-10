@@ -14,6 +14,7 @@
 #include "GuidedProjectiles.hpp"
 #include "PersistReferenceScale.hpp"
 #include "EngineFixes.hpp"
+#include "RegenAmmo.hpp"
 #include "SimpleIni.h"
 #include "Globals.hpp"
 
@@ -159,6 +160,7 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 		installGuidedProjectilesHook();
 		installPersistReferenceScaleHooks();
 		installEngineFixes();
+		installRegenAmmoHooks();
 	}
 
 	return true;
