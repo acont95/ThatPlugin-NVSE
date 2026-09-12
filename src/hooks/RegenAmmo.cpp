@@ -11,6 +11,9 @@
 
 constexpr char CONFIG_SECTION[] = "RegenAmmo";
 CallDetour AddWornDetour{};
+CallDetour GetObjectInListDetour{};
+CallDetour GetBestAmmoForWeaponDetour{};
+CallDetour HasItemDetour{};
 
 constexpr std::uint32_t ItemChange_HasModEffectActive_Addr = 0x004BDA70;
 constexpr std::uint32_t ItemChange_HasModEffectActiveF_Addr = 0x004BD8D0;
@@ -18,6 +21,8 @@ constexpr std::uint32_t TESObjectWEAP_GetFormClipRounds_Addr = 0x004FE160;
 constexpr std::uint32_t TESObjectWEAP_GetAmmoRegenRate_Addr = 0x00709430;
 constexpr std::uint32_t TESObjectWEAP_GetModEffect_Addr = 0x004BD880;
 constexpr std::uint32_t ExtraDataList_GetWeaponModSlotActive_Addr = 0x00418C00;
+constexpr std::uint32_t ItemChange_Constructor_Addr = 0x004BC550;
+constexpr std::uint32_t BGSAmmoForm_GetAmmoHelper_Addr = 0x00474920;
 
 
 static int getRegenValue(CommonLib::Actor* apActor, int aiShotCount)
@@ -90,6 +95,20 @@ static bool isWeaponModActive(CommonLib::TESObjectWEAP* apWeapon, CommonLib::Ext
 	return false;
 }
 
+bool isWeaponItemChangeRegen(CommonLib::ItemChange* apWeapon) {
+	CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(apWeapon->pContainerObj);
+	if (pWeapon) {
+		bool bIsRegenMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, apWeapon, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
+
+		float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
+		if (fRegenRate > 0.0f) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 static bool skipReload(
 	CommonLib::TESObjectWEAP* apWeapon, CommonLib::ExtraDataList* apExtraData)
 {
@@ -123,9 +142,9 @@ static __declspec(naked) void Hook_DeferReload()
 		mov     eax, 0x0088DF5C
 		jmp     eax
 
-		skip_call :
+	skip_call:
 		mov     eax, 0x0088DF73
-			jmp     eax
+		jmp     eax
 	}
 }
 
@@ -169,11 +188,8 @@ static int Hook_RegenAmmoCount(CommonLib::InventoryChanges* apInventoryChanges, 
 			if (pCurrentProcess) {
 				CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
 				if (pCurrentWeapon) {
-					CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
-					bool bIsRegenMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
-
-					float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
-					if (fRegenRate > 0.0f) {
+					if (isWeaponItemChangeRegen(pCurrentWeapon)) {
+						CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
 						bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
 						int iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
 						return iClipSize;
@@ -206,6 +222,151 @@ static __declspec(naked) void Hook_GetObjectCount()
 	}
 }
 
+static int IsActorUsingRegenWeapon(CommonLib::Actor* apActor)
+{
+	CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
+	if (pCurrentProcess) {
+		CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+		if (pCurrentWeapon) {
+			return isWeaponItemChangeRegen(pCurrentWeapon);
+		}
+	}
+
+	return false;
+}
+
+static __declspec(naked) void Hook_NPCRegen()
+{
+	__asm
+	{
+		mov     edx, [ebp - 0x1C]
+		push    edx
+		call    IsActorUsingRegenWeapon
+		add     esp, 0x4
+
+		test    al, al
+		jnz     skip_branch
+
+		cmp[ebp - 0x10], 0
+		jnz     skip_branch
+
+		mov     edx, 0x008A8D69
+		jmp     edx
+
+	skip_branch:
+		mov     edx, 0x008A8DBF
+		jmp     edx
+	}
+}
+
+static CommonLib::ItemChange* __fastcall Hook_GetObjectInList(
+	CommonLib::InventoryChanges* apInventoryChanges, void* edx, CommonLib::TESBoundObject* apObject, bool ableveled, unsigned int aId)
+{
+	CommonLib::TESObjectREFR* pRef = apInventoryChanges->pRef;
+	if (apObject && pRef && pRef->IsActor()) {
+		CommonLib::Actor* pActor = static_cast<CommonLib::Actor*>(pRef);
+
+		CommonLib::ENUM_FORM_ID eFormType =
+			static_cast<CommonLib::ENUM_FORM_ID>(apObject->cFormType);
+
+		if (eFormType == CommonLib::AMMO_ID) {
+			CommonLib::BaseProcess* pCurrentProcess = pActor->pCurrentProcess;
+			if (pCurrentProcess) {
+				CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+				if (pCurrentWeapon) {
+					if (isWeaponItemChangeRegen(pCurrentWeapon)) {
+						CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+						bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
+						int iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
+						return New<CommonLib::ItemChange, ItemChange_Constructor_Addr>(apObject, iClipSize);
+					}
+				}
+			}
+		}
+	}
+
+	return ThisStdCall<CommonLib::ItemChange*>(GetObjectInListDetour.GetOverwrittenAddr(), apInventoryChanges, apObject, ableveled, aId);
+}
+
+
+static CommonLib::TESAmmo* __fastcall Hook_GetBestAmmoForWeapon_InventoryChanges(
+	CommonLib::InventoryChanges* apInventoryChanges, void* edx, CommonLib::TESObjectWEAP* apWeapon, bool* bNeedsAmmo)
+{
+	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+	CommonLib::ItemChange* pCurrentWeapon = *reinterpret_cast<CommonLib::ItemChange**>(ebp - 0x84);
+	if (pCurrentWeapon) {
+		if (isWeaponItemChangeRegen(pCurrentWeapon)) {
+			CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+			return ThisStdCall<CommonLib::TESAmmo*>(BGSAmmoForm_GetAmmoHelper_Addr, static_cast<CommonLib::BGSAmmoForm*>(pWeapon));
+		}
+	}
+
+	return ThisStdCall<CommonLib::TESAmmo*>(GetBestAmmoForWeaponDetour.GetOverwrittenAddr(), apInventoryChanges, apWeapon, bNeedsAmmo);
+}
+
+static CommonLib::TESAmmo* __fastcall Hook_GetBestAmmoForWeapon_OriginalContainer(
+	CommonLib::InventoryChanges* apInventoryChanges, void* edx, CommonLib::TESObjectWEAP* apWeapon, bool* bNeedsAmmo)
+{
+	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+	CommonLib::ItemChange* pCurrentWeapon = *reinterpret_cast<CommonLib::ItemChange**>(ebp - 0x54);
+	if (pCurrentWeapon) {
+		if (isWeaponItemChangeRegen(pCurrentWeapon)) {
+			CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+			return ThisStdCall<CommonLib::TESAmmo*>(BGSAmmoForm_GetAmmoHelper_Addr, static_cast<CommonLib::BGSAmmoForm*>(pWeapon));
+		}
+	}
+
+	return ThisStdCall<CommonLib::TESAmmo*>(GetBestAmmoForWeaponDetour.GetOverwrittenAddr(), apInventoryChanges, apWeapon, bNeedsAmmo);
+}
+
+static CommonLib::TESAmmo* __fastcall Hook_GetBestAmmoForWeapon_UpdateInventoryData(
+	CommonLib::InventoryChanges* apInventoryChanges, void* edx, CommonLib::TESObjectWEAP* apWeapon, bool* bNeedsAmmo)
+{
+	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+	CommonLib::ItemChange* pCurrentWeapon = *reinterpret_cast<CommonLib::ItemChange**>(ebp - 0x2C);
+	if (pCurrentWeapon) {
+		if (isWeaponItemChangeRegen(pCurrentWeapon)) {
+			CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+			return ThisStdCall<CommonLib::TESAmmo*>(BGSAmmoForm_GetAmmoHelper_Addr, static_cast<CommonLib::BGSAmmoForm*>(pWeapon));
+		}
+	}
+
+	return ThisStdCall<CommonLib::TESAmmo*>(GetBestAmmoForWeaponDetour.GetOverwrittenAddr(), apInventoryChanges, apWeapon, bNeedsAmmo);
+}
+
+static bool __fastcall Hook_HasItem(
+	CommonLib::BSSimpleArray<CommonLib::TESAmmo*, 1024>* apAmmoArray, void* edx, CommonLib::TESAmmo* aValue)
+{
+	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+	CommonLib::ItemChange* pCurrentWeapon = *reinterpret_cast<CommonLib::ItemChange**>(ebp - 0x2C);
+	if (pCurrentWeapon) {
+		if (isWeaponItemChangeRegen(pCurrentWeapon)) {
+			return true;
+		}
+	}
+
+	return ThisStdCall<bool>(HasItemDetour.GetOverwrittenAddr(), apAmmoArray, aValue);
+}
+
+static CommonLib::TESBoundObject* __fastcall Hook_ItemChangeGetter(CommonLib::ItemChange* apCurrentWeapon, void* edx)
+{
+	if (apCurrentWeapon) {
+		CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(apCurrentWeapon->pContainerObj);
+		if (pWeapon) {
+			bool bIsRegenMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, apCurrentWeapon, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
+
+			float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
+			if (fRegenRate > 0.0f) {
+				return nullptr;
+			}
+		}
+
+		return apCurrentWeapon->pContainerObj;
+	}
+
+	return nullptr;
+}
+
 void installRegenAmmoHooks() {
 	if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bEnabled")) {
 
@@ -224,6 +385,23 @@ void installRegenAmmoHooks() {
 			// Fix hardcoded ammo regen (shots) value in TESObjectWEAP::Fire
 			WriteRelJump(0x005247E5, reinterpret_cast<std::uint32_t>(&Hook_FixWeaponModAmmoRegen));
 			PatchMemoryNop(0x005247EA, 5);
+		}
+
+		if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bNPCUseRegenWeapons"))
+		{
+			WriteRelJump(0x008A8D63, reinterpret_cast<std::uint32_t>(&Hook_NPCRegen));
+			PatchMemoryNop(0x008A8D68, 1);
+
+			GetObjectInListDetour.WriteRelCall(0x004D0685, reinterpret_cast<std::uint32_t>(&Hook_GetObjectInList));
+
+			GetBestAmmoForWeaponDetour.WriteRelCall(0x004C773B, reinterpret_cast<std::uint32_t>(&Hook_GetBestAmmoForWeapon_OriginalContainer));
+			GetBestAmmoForWeaponDetour.WriteRelCall(0x004C7C48, reinterpret_cast<std::uint32_t>(&Hook_GetBestAmmoForWeapon_InventoryChanges));
+			GetBestAmmoForWeaponDetour.WriteRelCall(0x0099993F, reinterpret_cast<std::uint32_t>(&Hook_GetBestAmmoForWeapon_UpdateInventoryData));
+			HasItemDetour.WriteRelCall(0x00999961, reinterpret_cast<std::uint32_t>(&Hook_HasItem));
+			HasItemDetour.WriteRelCall(0x00999917, reinterpret_cast<std::uint32_t>(&Hook_HasItem));
+
+			//WriteRelCall(0x00999B04, reinterpret_cast<std::uint32_t>(&Hook_ItemChangeGetter));
+			//WriteRelCall(0x0099997E, reinterpret_cast<std::uint32_t>(&Hook_ItemChangeGetter));
 		}
 	}
 }
