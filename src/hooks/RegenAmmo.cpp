@@ -1,12 +1,14 @@
 #include "RegenAmmo.hpp"
 #include "nvse/PluginAPI.h"
 #include "nvse/SafeWrite.h"
+#include "nvse/GameObjects.h"
 #include "Bethesda/Actor.hpp"
 #include "Bethesda/PlayerCharacter.hpp"
 #include "Bethesda/BaseProcess.hpp"
 #include "Bethesda/TESObjectWEAP.hpp"
 #include "Bethesda/ItemChange.hpp"
 #include "Bethesda/InventoryChanges.hpp"
+#include "Bethesda/BSTimer.hpp"
 #include "Globals.hpp"
 
 constexpr char CONFIG_SECTION[] = "RegenAmmo";
@@ -23,7 +25,6 @@ constexpr std::uint32_t TESObjectWEAP_GetModEffect_Addr = 0x004BD880;
 constexpr std::uint32_t ExtraDataList_GetWeaponModSlotActive_Addr = 0x00418C00;
 constexpr std::uint32_t ItemChange_Constructor_Addr = 0x004BC550;
 constexpr std::uint32_t BGSAmmoForm_GetAmmoHelper_Addr = 0x00474920;
-
 
 static int getRegenValue(CommonLib::Actor* apActor, int aiShotCount)
 {
@@ -275,9 +276,13 @@ static CommonLib::ItemChange* __fastcall Hook_GetObjectInList(
 				CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
 				if (pCurrentWeapon) {
 					if (isWeaponItemChangeRegen(pCurrentWeapon)) {
-						CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
-						bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
-						int iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
+						int iClipSize = 0;
+						if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bRegenFullChargeOnEquip")) {
+							CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+							bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
+							iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
+						}
+
 						return New<CommonLib::ItemChange, ItemChange_Constructor_Addr>(apObject, iClipSize);
 					}
 				}
@@ -348,24 +353,66 @@ static bool __fastcall Hook_HasItem(
 	return ThisStdCall<bool>(HasItemDetour.GetOverwrittenAddr(), apAmmoArray, aValue);
 }
 
-static CommonLib::TESBoundObject* __fastcall Hook_ItemChangeGetter(CommonLib::ItemChange* apCurrentWeapon, void* edx)
-{
-	if (apCurrentWeapon) {
-		CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(apCurrentWeapon->pContainerObj);
-		if (pWeapon) {
-			bool bIsRegenMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, apCurrentWeapon, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
 
+static void actorRegenAmmo(CommonLib::Actor* apActor) {
+	CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
+	if (!apActor->IsDead(0)) {
+		CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+		if (pCurrentWeapon) {
+			CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+			bool bIsRegenMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
 			float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
 			if (fRegenRate > 0.0f) {
-				return nullptr;
+				CommonLib::BSTimer* pAppTimer = CommonLib::BSTimer::GetAppTimerSingleton();
+				//Console_Print("%s", ActorRegenTickExtraData::GetName());
+				Actor* pActorForm = reinterpret_cast<Actor*>(apActor);
+				NiPointer<ActorRegenTickExtraData> pExtraRegenData =
+					(ActorRegenTickExtraData*) PluginFormExtraData::Get(
+						Globals::g_dataInterface,
+						pActorForm,
+						ActorRegenTickExtraData::GetName()
+					);
+
+				if (pExtraRegenData == nullptr) {
+					Console_Print("No ExtraData, creating...");
+					ActorRegenTickExtraData* pNew = New<ActorRegenTickExtraData>();
+					new (pNew) ActorRegenTickExtraData();
+
+					pExtraRegenData = pNew;
+					PluginFormExtraData::Add(Globals::g_dataInterface, pActorForm, pExtraRegenData);
+				}
+
+				float fTimeSinceLastAmmoRegenTick = pExtraRegenData->fTimeSinceLastAmmoRegenTick;
+				fTimeSinceLastAmmoRegenTick -= pAppTimer->fDelta;
+				pExtraRegenData->fTimeSinceLastAmmoRegenTick = fTimeSinceLastAmmoRegenTick;
+
+				CommonLib::ItemChange* pCurrentAmmo = pCurrentProcess->GetCurrentAmmo();
+				if (pCurrentAmmo && fTimeSinceLastAmmoRegenTick <= 0.0f) {
+					pExtraRegenData->fTimeSinceLastAmmoRegenTick = fRegenRate;
+					int iAmmoCount = pCurrentAmmo->iNumber;
+					bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
+					int iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
+
+					if (iAmmoCount < iClipSize) {
+						pCurrentAmmo->iNumber += 1;
+						Console_Print("REGEN %d", pCurrentAmmo->iNumber);
+					}
+				}
+				else {
+					Console_Print("Current Ammo Null %f", fTimeSinceLastAmmoRegenTick);
+				}
 			}
 		}
-
-		return apCurrentWeapon->pContainerObj;
 	}
-
-	return nullptr;
 }
+
+
+static CommonLib::BaseProcess* __fastcall Hook_GetCurrentProcess(CommonLib::Actor* apActor, void* edx)
+{
+	actorRegenAmmo(apActor);
+	return apActor->pCurrentProcess;
+}
+
 
 void installRegenAmmoHooks() {
 	if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bEnabled")) {
@@ -376,7 +423,7 @@ void installRegenAmmoHooks() {
 			AddWornDetour.WriteRelCall(0x0088DFFF, reinterpret_cast<std::uint32_t>(&Hook_AddWorn));
 			WriteRelJump(0x0088DF56, reinterpret_cast<std::uint32_t>(&Hook_DeferReload));
 			PatchMemoryNop(0x0088DF5B, 1);
-
+			// Hook InventoryChanges::GetObjectCount to return the clip size if weapon is regen
 			WriteRelJump(0x004C8FC0, reinterpret_cast<std::uint32_t>(&Hook_GetObjectCount));
 		}
 
@@ -400,8 +447,9 @@ void installRegenAmmoHooks() {
 			HasItemDetour.WriteRelCall(0x00999961, reinterpret_cast<std::uint32_t>(&Hook_HasItem));
 			HasItemDetour.WriteRelCall(0x00999917, reinterpret_cast<std::uint32_t>(&Hook_HasItem));
 
-			//WriteRelCall(0x00999B04, reinterpret_cast<std::uint32_t>(&Hook_ItemChangeGetter));
-			//WriteRelCall(0x0099997E, reinterpret_cast<std::uint32_t>(&Hook_ItemChangeGetter));
+			// Hook GetCurrentProcess call in Actor::Update to regenerate ammo
+			// Called when actor is not player and current process is not null
+			WriteRelCall(0x008895EE, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentProcess));
 		}
 	}
 }

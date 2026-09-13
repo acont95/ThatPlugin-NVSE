@@ -9,4 +9,8 @@ bool IsVanityMode() {
 
 namespace Globals {
 	CSimpleIniA g_Ini;
+    NVSEMessagingInterface* g_messagingInterface{};
+    NVSEInterface* g_nvseInterface{};
+    NVSEEventManagerInterface* g_eventInterface{};
+    NVSEDataInterface* g_dataInterface{};
 }

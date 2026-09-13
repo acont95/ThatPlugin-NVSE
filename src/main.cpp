@@ -24,10 +24,6 @@
 IDebugLog		gLog("logs\\ThatPlugin-NVSE.log");
 PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 
-NVSEMessagingInterface* g_messagingInterface{};
-NVSEInterface* g_nvseInterface{};
-NVSEEventManagerInterface* g_eventInterface{};
-
 constexpr std::uint32_t PLUGIN_VERSION = 46;
 constexpr char g_PluginVersion[] = "0.4.6";
 
@@ -136,24 +132,26 @@ EXTERN_DLL_EXPORT bool NVSEPlugin_Load(NVSEInterface* nvse) {
 	g_pluginHandle = nvse->GetPluginHandle();
 
 	// save the NVSE interface in case we need it later
-	g_nvseInterface = nvse;
+	Globals::g_nvseInterface = nvse;
 
 	// register to receive messages from NVSE
-	g_messagingInterface = static_cast<NVSEMessagingInterface*>(nvse->QueryInterface(kInterface_Messaging));
-	g_messagingInterface->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
-	g_eventInterface = static_cast<NVSEEventManagerInterface*>(nvse->QueryInterface(kInterface_EventManager));
-
-	Globals::g_Ini.SetQuotes();
-	Globals::g_Ini.SetUnicode();
-	SI_Error rc = Globals::g_Ini.LoadFile((g_pluginsPath / g_IniFile).c_str());
-	if (rc < 0) {
-		configMissing = true;
-		return true;
-	};
-
-	loadAdditionalIniFiles();
+	Globals::g_messagingInterface = static_cast<NVSEMessagingInterface*>(nvse->QueryInterface(kInterface_Messaging));
+	Globals::g_messagingInterface->RegisterListener(g_pluginHandle, "NVSE", MessageHandler);
 
 	if (!nvse->isEditor) {
+		Globals::g_eventInterface = static_cast<NVSEEventManagerInterface*>(nvse->QueryInterface(kInterface_EventManager));
+		Globals::g_dataInterface = static_cast<NVSEDataInterface*>(nvse->QueryInterface(kInterface_Data));
+
+		Globals::g_Ini.SetQuotes();
+		Globals::g_Ini.SetUnicode();
+		SI_Error rc = Globals::g_Ini.LoadFile((g_pluginsPath / g_IniFile).c_str());
+		if (rc < 0) {
+			configMissing = true;
+			return true;
+		};
+
+		loadAdditionalIniFiles();
+
 		installBallisticMeleeHooks();
 		installBetterCounterHooks();
 		installBottomlessClipHooks();

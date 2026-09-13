@@ -102,6 +102,7 @@ powershell -NoProfile -ExecutionPolicy Unrestricted -File $(SolutionDir)package.
     </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="external\CommonLibFNV\src\Bethesda\BSTimer.cpp" />
     <ClCompile Include="external\CommonLibFNV\src\Bethesda\PlayerCharacter.cpp" />
     <ClCompile Include="external\CommonLibFNV\src\Bethesda\TES.cpp" />
     <ClCompile Include="external\CommonLibFNV\src\Bethesda\VATS.cpp" />
