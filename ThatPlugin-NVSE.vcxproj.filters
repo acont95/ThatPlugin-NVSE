@@ -120,13 +120,16 @@
     <ClCompile Include="src\hooks\PersistReferenceScale.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\hooks\EngineFixes.cpp">
+    <ClCompile Include="src\hooks\AutoFireSpinFix.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="src\hooks\RegenAmmo.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="external\CommonLibFNV\src\Bethesda\BSTimer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\hooks\NoAmmoSwapWithoutReload.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -149,10 +152,13 @@
     <ClInclude Include="include\PersistReferenceScale.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\EngineFixes.hpp">
+    <ClInclude Include="include\AutoFireSpinFix.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\RegenAmmo.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="include\NoAmmoSwapWithoutReload.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

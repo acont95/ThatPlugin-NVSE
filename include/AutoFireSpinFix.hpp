@@ -1,4 +1,4 @@
 #pragma once
 #include "SimpleIni.h"
 
-void installEngineFixes();
+void installAutoFireSpinFixHooks();

@@ -12,20 +12,19 @@
 #include "Globals.hpp"
 
 constexpr char CONFIG_SECTION[] = "RegenAmmo";
-CallDetour AddWornDetour{};
-CallDetour GetObjectInListDetour{};
+
 CallDetour GetBestAmmoForWeaponDetour{};
-CallDetour HasItemDetour{};
-CallDetour SetReloadSpeedDetour{};
+CallDetour AddWornDetour{};
 
 constexpr std::uint32_t ItemChange_HasModEffectActive_Addr = 0x004BDA70;
 constexpr std::uint32_t ItemChange_HasModEffectActiveF_Addr = 0x004BD8D0;
 constexpr std::uint32_t TESObjectWEAP_GetFormClipRounds_Addr = 0x004FE160;
 constexpr std::uint32_t TESObjectWEAP_GetAmmoRegenRate_Addr = 0x00709430;
-constexpr std::uint32_t TESObjectWEAP_GetModEffect_Addr = 0x004BD880;
-constexpr std::uint32_t ExtraDataList_GetWeaponModSlotActive_Addr = 0x00418C00;
 constexpr std::uint32_t ItemChange_Constructor_Addr = 0x004BC550;
 constexpr std::uint32_t BGSAmmoForm_GetAmmoHelper_Addr = 0x00474920;
+constexpr std::uint32_t TESObjectWEAP_GetCurrentAmmo_Addr = 0x00525980;
+constexpr std::uint32_t ExtraDataList_GetWeaponModSlotActive_Addr = 0x00418C00;
+constexpr std::uint32_t TESObjectWEAP_GetModEffect_Addr = 0x004BD880;
 
 static int getRegenValue(CommonLib::Actor* apActor, int aiShotCount)
 {
@@ -77,6 +76,23 @@ static __declspec(naked) void Hook_FixWeaponModAmmoRegen()
 }
 
 
+bool isWeaponItemChangeRegen(CommonLib::ItemChange* apWeapon) {
+	if (apWeapon) {
+		CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(apWeapon->pContainerObj);
+		if (pWeapon) {
+			bool bIsRegenMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, apWeapon, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
+
+			float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
+			if (fRegenRate > 0.0f) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+
 static bool isWeaponModActive(CommonLib::TESObjectWEAP* apWeapon, CommonLib::ExtraDataList* apExtraData, CommonLib::WEAPON_MOD_EFFECT eModEffect) {
 	if (ThisStdCall<CommonLib::WEAPON_MOD_EFFECT>(TESObjectWEAP_GetModEffect_Addr, apWeapon, 1u) == eModEffect
 		&& ThisStdCall<bool>(ExtraDataList_GetWeaponModSlotActive_Addr, apExtraData, 1u))
@@ -97,29 +113,17 @@ static bool isWeaponModActive(CommonLib::TESObjectWEAP* apWeapon, CommonLib::Ext
 	return false;
 }
 
-bool isWeaponItemChangeRegen(CommonLib::ItemChange* apWeapon) {
-	if (apWeapon) {
-		CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(apWeapon->pContainerObj);
-		if (pWeapon) {
-			bool bIsRegenMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, apWeapon, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
 
-			float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
-			if (fRegenRate > 0.0f) {
-				return true;
-			}
+static bool isActorConfigMatch(CommonLib::Actor* apActor) {
+	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+
+	if (apActor == pPlayer) {
+		if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bRegenFullChargeOnEquip")) {
+			return true;
 		}
 	}
-
-	return false;
-}
-
-static bool skipReload(
-	CommonLib::TESObjectWEAP* apWeapon, CommonLib::ExtraDataList* apExtraData)
-{
-	if (apWeapon && apExtraData) {
-		bool bIsRegenMod = isWeaponModActive(apWeapon, apExtraData, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
-		float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, apWeapon, bIsRegenMod);
-		if (fRegenRate > 0.0f) {
+	else {
+		if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bNPCUseRegenWeapons")) {
 			return true;
 		}
 	}
@@ -130,24 +134,25 @@ static bool skipReload(
 
 static int Hook_RegenAmmoCount(CommonLib::InventoryChanges* apInventoryChanges, CommonLib::TESBoundObject* apObject, int aiOriginalCount)
 {
-	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
 	CommonLib::TESObjectREFR* pRef = apInventoryChanges->pRef;
 	if (apObject && pRef && pRef->IsActor()) {
 		CommonLib::Actor* pActor = static_cast<CommonLib::Actor*>(pRef);
 
-		CommonLib::ENUM_FORM_ID eFormType =
-			static_cast<CommonLib::ENUM_FORM_ID>(apObject->cFormType);
+		if (isActorConfigMatch(pActor)) {
+			CommonLib::ENUM_FORM_ID eFormType =
+				static_cast<CommonLib::ENUM_FORM_ID>(apObject->cFormType);
 
-		if (eFormType == CommonLib::AMMO_ID) {
-			CommonLib::BaseProcess* pCurrentProcess = pActor->pCurrentProcess;
-			if (pCurrentProcess) {
-				CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
-				if (pCurrentWeapon) {
-					if (isWeaponItemChangeRegen(pCurrentWeapon)) {
-						CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
-						bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
-						int iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
-						return iClipSize;
+			if (eFormType == CommonLib::AMMO_ID) {
+				CommonLib::BaseProcess* pCurrentProcess = pActor->pCurrentProcess;
+				if (pCurrentProcess) {
+					CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+					if (pCurrentWeapon) {
+						if (isWeaponItemChangeRegen(pCurrentWeapon)) {
+							CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+							bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
+							int iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
+							return iClipSize;
+						}
 					}
 				}
 			}
@@ -177,7 +182,7 @@ static __declspec(naked) void Hook_GetObjectCount()
 	}
 }
 
-static int IsActorUsingRegenWeapon(CommonLib::Actor* apActor)
+static int isActorUsingRegenWeapon(CommonLib::Actor* apActor)
 {
 	CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
 	if (pCurrentProcess) {
@@ -196,7 +201,7 @@ static __declspec(naked) void Hook_NPCRegen()
 	{
 		mov     edx, [ebp - 0x1C]
 		push    edx
-		call    IsActorUsingRegenWeapon
+		call    isActorUsingRegenWeapon
 		add     esp, 0x4
 
 		test    al, al
@@ -218,13 +223,15 @@ static __declspec(naked) void Hook_NPCRegen()
 static CommonLib::TESAmmo* __fastcall Hook_GetBestAmmoForWeapon_InventoryChanges(
 	CommonLib::InventoryChanges* apInventoryChanges, void* edx, CommonLib::TESObjectWEAP* apWeapon, bool* bNeedsAmmo)
 {
-	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
-	CommonLib::ItemChange* pCurrentWeapon = *reinterpret_cast<CommonLib::ItemChange**>(ebp - 0x84);
-	if (pCurrentWeapon) {
-		if (isWeaponItemChangeRegen(pCurrentWeapon)) {
-			CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
-			Console_Print("GetBestAmmoForWeapon");
-			return ThisStdCall<CommonLib::TESAmmo*>(BGSAmmoForm_GetAmmoHelper_Addr, static_cast<CommonLib::BGSAmmoForm*>(pWeapon));
+	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+	if (apInventoryChanges->pRef != pPlayer) {
+		std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+		CommonLib::ItemChange* pCurrentWeapon = *reinterpret_cast<CommonLib::ItemChange**>(ebp - 0x84);
+		if (pCurrentWeapon) {
+			if (isWeaponItemChangeRegen(pCurrentWeapon)) {
+				CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+				return ThisStdCall<CommonLib::TESAmmo*>(BGSAmmoForm_GetAmmoHelper_Addr, static_cast<CommonLib::BGSAmmoForm*>(pWeapon));
+			}
 		}
 	}
 
@@ -234,13 +241,15 @@ static CommonLib::TESAmmo* __fastcall Hook_GetBestAmmoForWeapon_InventoryChanges
 static CommonLib::TESAmmo* __fastcall Hook_GetBestAmmoForWeapon_OriginalContainer(
 	CommonLib::InventoryChanges* apInventoryChanges, void* edx, CommonLib::TESObjectWEAP* apWeapon, bool* bNeedsAmmo)
 {
-	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
-	CommonLib::ItemChange* pCurrentWeapon = *reinterpret_cast<CommonLib::ItemChange**>(ebp - 0x54);
-	if (pCurrentWeapon) {
-		if (isWeaponItemChangeRegen(pCurrentWeapon)) {
-			CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
-			Console_Print("GetBestAmmoForWeapon");
-			return ThisStdCall<CommonLib::TESAmmo*>(BGSAmmoForm_GetAmmoHelper_Addr, static_cast<CommonLib::BGSAmmoForm*>(pWeapon));
+	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+	if (apInventoryChanges->pRef != pPlayer) {
+		std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+		CommonLib::ItemChange* pCurrentWeapon = *reinterpret_cast<CommonLib::ItemChange**>(ebp - 0x54);
+		if (pCurrentWeapon) {
+			if (isWeaponItemChangeRegen(pCurrentWeapon)) {
+				CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+				return ThisStdCall<CommonLib::TESAmmo*>(BGSAmmoForm_GetAmmoHelper_Addr, static_cast<CommonLib::BGSAmmoForm*>(pWeapon));
+			}
 		}
 	}
 
@@ -250,7 +259,7 @@ static CommonLib::TESAmmo* __fastcall Hook_GetBestAmmoForWeapon_OriginalContaine
 
 static void actorRegenAmmo(CommonLib::Actor* apActor) {
 	CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
-	if (!apActor->IsDead(0)) {
+	if (pCurrentProcess && !apActor->IsDead(0)) {
 		CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
 		if (pCurrentWeapon) {
 			CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
@@ -258,7 +267,6 @@ static void actorRegenAmmo(CommonLib::Actor* apActor) {
 			float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
 			if (fRegenRate > 0.0f) {
 				CommonLib::BSTimer* pAppTimer = CommonLib::BSTimer::GetAppTimerSingleton();
-				//Console_Print("%s", ActorRegenTickExtraData::GetName());
 				Actor* pActorForm = reinterpret_cast<Actor*>(apActor);
 				NiPointer<ActorRegenTickExtraData> pExtraRegenData =
 					(ActorRegenTickExtraData*) PluginFormExtraData::Get(
@@ -268,7 +276,6 @@ static void actorRegenAmmo(CommonLib::Actor* apActor) {
 					);
 
 				if (pExtraRegenData == nullptr) {
-					//Console_Print("No ExtraData, creating...");
 					ActorRegenTickExtraData* pNew = New<ActorRegenTickExtraData>();
 					new (pNew) ActorRegenTickExtraData();
 
@@ -289,6 +296,7 @@ static void actorRegenAmmo(CommonLib::Actor* apActor) {
 
 					if (iAmmoCount < iClipSize) {
 						pCurrentAmmo->iNumber += 1;
+						Console_Print("REGEN %d", pCurrentAmmo->iNumber);
 					}
 				}
 			}
@@ -303,7 +311,7 @@ static CommonLib::BaseProcess* __fastcall Hook_GetCurrentProcess(CommonLib::Acto
 	return apActor->pCurrentProcess;
 }
 
-static __declspec(naked) void Hook_SkipUpdateInvetoryDataRegenReload()
+static __declspec(naked) void Hook_SkipUpdateInventoryDataRegenReload()
 {
 	__asm
 	{
@@ -321,101 +329,154 @@ static __declspec(naked) void Hook_SkipUpdateInvetoryDataRegenReload()
 		mov     edx, 0x009998FA
 		jmp     edx
 
-		skip_branch :
-			mov     edx, 0x00999C49
-			jmp     edx
+	skip_branch :
+		mov     edx, 0x00999C49
+		jmp     edx
 	}
 }
 
 
-static void setAmmoItemChangeIfMissing(CommonLib::Actor* apActor)
+static void setAmmoItemChange(CommonLib::Actor* apActor)
 {
 	if (apActor) {
 		CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
-		if (pCurrentProcess && !pCurrentProcess->GetCurrentAmmo()) {
+		if (pCurrentProcess) {
 			CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
-			if (pCurrentWeapon) {
+			CommonLib::ItemChange* pCurrentAmmo = pCurrentProcess->GetCurrentAmmo();
+			if (pCurrentWeapon && !pCurrentAmmo) {
 				CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
-				CommonLib::TESAmmo* pAmmo = ThisStdCall<CommonLib::TESAmmo*>(BGSAmmoForm_GetAmmoHelper_Addr, static_cast<CommonLib::BGSAmmoForm*>(pWeapon));
+				CommonLib::TESAmmo* pAmmo = ThisStdCall<CommonLib::TESAmmo*>(TESObjectWEAP_GetCurrentAmmo_Addr, pWeapon, apActor);
 				if (pAmmo) {
-					bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
-					int iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
+					bool bFullChargeOnEquip = Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bRegenFullChargeOnEquip");
+
+					int iClipSize = 0;
+					if (bFullChargeOnEquip) {
+						bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
+						iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
+					}
+
 					CommonLib::ItemChange* pNewAmmoItemChange = New<CommonLib::ItemChange, ItemChange_Constructor_Addr>(pAmmo, iClipSize);
 					pCurrentProcess->SetCurrentAmmo(pNewAmmoItemChange);
-					Console_Print("setAmmoItemChangeIfMissing %d", iClipSize);
 				}
 			}
 		}
 	}
 }
 
-static __declspec(naked) void Hook_SkipActorRegenReload()
+static __declspec(naked) void Hook_ActorReloadWeapon()
 {
 	__asm
 	{
-		cmp     [ebp + 0x8], 0
-		jz      skip_reload
-
 		mov     edx, [ebp - 0x58]
 		push    edx
-		call    IsActorUsingRegenWeapon
+		call    isActorUsingRegenWeapon
 		add     esp, 0x4
 
 		test    al, al
 		jnz     regen
 
-		mov     edx, 0x008A8456
+		cmp     [ebp + 0x8], 0
+		jnz     vanilla_continue
+
+		mov     edx, 0x008A844F
 		jmp     edx
 
-		regen :
-			mov     edx, [ebp - 0x58]
-			push    edx
-			//call    setAmmoItemChangeIfMissing
-			add     esp, 0x4
-			jmp     skip_reload
+	regen :
+		mov     edx, [ebp - 0x58]
+		push    edx
+		call    setAmmoItemChange
+		add     esp, 0x4
+		mov     al, 1
+		mov     edx, 0x008A8807
+		jmp     edx
 
-		skip_reload:
-			mov     edx, 0x008A844F
-			jmp     edx
+	vanilla_continue:
+		mov     edx, 0x008A8456
+		jmp     edx
 	}
 }
 
 
-static void __fastcall Hook_SetReloadSpeed(CommonLib::Actor* apActor, void* edx)
+static __declspec(naked) void Hook_PlayerReloadWeapon()
 {
-	if (apActor && IsActorUsingRegenWeapon(apActor)) {
-		CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
-		if (pCurrentProcess) {
-			CommonLib::ItemChange* pCurrentAmmo = pCurrentProcess->GetCurrentAmmo();
-			CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+	__asm
+	{
+		mov     edx, [ebp - 0x5C]
+		push    edx
+		call    isActorUsingRegenWeapon
+		add     esp, 0x4
 
-			CommonLib::TESObjectWEAP* pWeapon = nullptr;
-			if (pCurrentWeapon) {
-				pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
-			}
+		test    al, al
+		jnz     regen
 
-			bool bFullChargeOnEquip = Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bRegenFullChargeOnEquip");
-			int iClipSize = 0;
-			if (bFullChargeOnEquip && pWeapon) {
-				bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
-				iClipSize = ThisStdCall<int>(TESObjectWEAP_GetFormClipRounds_Addr, pWeapon, bIsClipMod);
-			}
+		mov     eax, dword ptr ds : [0x011DEA3C]
 
-			if (pCurrentAmmo) {
-				pCurrentAmmo->iNumber = iClipSize;
-			}
-			else {
-				if (pWeapon) {
-					CommonLib::TESAmmo* pAmmo = ThisStdCall<CommonLib::TESAmmo*>(BGSAmmoForm_GetAmmoHelper_Addr, static_cast<CommonLib::BGSAmmoForm*>(pWeapon));
-					if (pAmmo) {
-						CommonLib::ItemChange* pNewAmmoItemChange = New<CommonLib::ItemChange, ItemChange_Constructor_Addr>(pAmmo, iClipSize);
-						pCurrentProcess->SetCurrentAmmo(pNewAmmoItemChange);
-					}
-				}
+		mov     edx, 0x0095D87E
+		jmp     edx
+
+	regen :
+		mov     edx, [ebp - 0x5C]
+		push    edx
+		call    setAmmoItemChange
+		add     esp, 0x4
+		mov     al, 1
+		mov     edx, 0x0095DDA0
+		jmp     edx		
+	}
+}
+
+
+static void __fastcall Hook_AddWorn(
+	CommonLib::InventoryChanges* apInventoryChanges, 
+	void* edx, 
+	CommonLib::TESBoundObject* apObject, 
+	int aiNumber, 
+	CommonLib::Actor* apActor, 
+	CommonLib::ExtraDataList* apExtra, 
+	bool abLeft, 
+	bool abForceEquip
+)
+{
+	ThisStdCall(AddWornDetour.GetOverwrittenAddr(), apInventoryChanges, apObject, aiNumber, apActor, apExtra, abLeft, abForceEquip);
+	if (apActor && apObject && apObject->cFormType == CommonLib::ENUM_FORM_ID::WEAP_ID) {
+		CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
+
+		if (isActorConfigMatch(apActor)) {
+			CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(apObject);
+			bool bIsRegenMod = isWeaponModActive(pWeapon, apExtra, CommonLib::WEAPON_MOD_AMMO_REGEN_SECONDS);
+			float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
+
+			if (fRegenRate > 0.0f) {
+				std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+				bool bMod = *reinterpret_cast<bool*>(ebp - 0x39);
+				apActor->ReloadWeaponNV(static_cast<CommonLib::TESObjectWEAP*>(apObject), 0, bMod, 1);
 			}
 		}
 	}
-	ThisStdCall<void>(SetReloadSpeedDetour.GetOverwrittenAddr(), apActor);
+}
+
+
+static __declspec(naked) void Hook_SkipLoadGameAmmoCheck()
+{
+	__asm
+	{
+		mov     edx, [ebp - 0x14]
+		push    edx
+		call    isActorUsingRegenWeapon
+		add     esp, 0x4
+
+		test    al, al
+		jnz     regen_skip
+
+		cmp     dword ptr[ecx + 0x118], 0
+
+		mov     edx, 0x0092763A
+		jmp     edx
+
+	regen_skip :
+		mov     edx, 0x0092777F
+		jmp     edx
+	}
 }
 
 
@@ -425,15 +486,23 @@ void installRegenAmmoHooks() {
 		if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bRegenFullChargeOnEquip") || 
 			Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bNPCUseRegenWeapons")) 
 		{
-			// Hook Actor::EquipObject to set ammo ItemChange after weapon equip
-			// Needed as ammo ItemChange is set before weapon ItemChange is set when equipping weapon, need to check for weapon mods
-			SetReloadSpeedDetour.WriteRelCall(0x0088CB79, reinterpret_cast<std::uint32_t>(&Hook_SetReloadSpeed));
+			// Call ReloadWeaponNV again after InventoryChanges::AddWorn to allow checking for weapon mods
+			AddWornDetour.WriteRelCall(0x0088DFFF, reinterpret_cast<std::uint32_t>(&Hook_AddWorn));
+
+			// Hook InventoryChanges::GetObjectCount to return the clip size if weapon is regen
+			// Needed for Stewies Tweaks compatibility with remember ammo count
+			WriteRelJump(0x004C8FC0, reinterpret_cast<std::uint32_t>(&Hook_GetObjectCount));
+
+			// Hook MiddleHighProcess::LoadGame to skip ammo inventory check after reload
+			// Not needed with GetObjectCount hook for PC, but needed with NPC
+			WriteRelJump(0x00927633, reinterpret_cast<std::uint32_t>(&Hook_SkipLoadGameAmmoCheck));
+			PatchMemoryNop(0x00927638, 2);
 		}
 
 		if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bRegenFullChargeOnEquip")) 
 		{
-			// Hook InventoryChanges::GetObjectCount to return the clip size if weapon is regen
-			WriteRelJump(0x004C8FC0, reinterpret_cast<std::uint32_t>(&Hook_GetObjectCount));
+			// Hook PlayerCharacter::ReloadWeapon to set current ammo for regen weapons
+			WriteRelJump(0x0095D879, reinterpret_cast<std::uint32_t>(&Hook_PlayerReloadWeapon));
 		}
 
 		if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bFixRegenAmmoCount")) 
@@ -451,22 +520,22 @@ void installRegenAmmoHooks() {
 			PatchMemoryNop(0x008A8D68, 1);
 
 			// Hook InventoryChanges::GetBestAmmoForWeapon calls, in InventoryChanges::GetBestWeapon
-			// Checks weapon ItemChange in calling function stack for regen rate and calls BGSAmmoForm::GetAmmoHelper if regen
+			// Checks weapon ItemChange from loop in calling function stack for regen rate and calls BGSAmmoForm::GetAmmoHelper if regen
 			// Allows NPCs to choose regen weapons without ammo in inventory
 			GetBestAmmoForWeaponDetour.WriteRelCall(0x004C773B, reinterpret_cast<std::uint32_t>(&Hook_GetBestAmmoForWeapon_OriginalContainer));
 			GetBestAmmoForWeaponDetour.WriteRelCall(0x004C7C48, reinterpret_cast<std::uint32_t>(&Hook_GetBestAmmoForWeapon_InventoryChanges));
 
-			// Hook GetCurrentProcess call in Actor::Update to regenerate ammo
+			// Hook GetCurrentProcess call in Actor::Update to regenerate ammo 
 			// Called when actor is not player and current process is not null
 			// Use NVSE Extra Data for storing float timer
 			WriteRelCall(0x008895EE, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentProcess));
 
 			// Hook CombatState::UpdateInventoryData to skip NPC periodic and out of ammo reload for regen weapons
 			// Also skips removing weapon from consideration if no ammo in inventory
-			WriteRelJump(0x009998F5, reinterpret_cast<std::uint32_t>(&Hook_SkipUpdateInvetoryDataRegenReload));
+			WriteRelJump(0x009998F5, reinterpret_cast<std::uint32_t>(&Hook_SkipUpdateInventoryDataRegenReload));
 
-			// Hook Actor::ReloadWeapon to skip reload for regen weapons
-			WriteRelJump(0x008A8449, reinterpret_cast<std::uint32_t>(&Hook_SkipActorRegenReload));
+			// Hook Actor::ReloadWeapon to set current ammo for regen weapons
+			WriteRelJump(0x008A8449, reinterpret_cast<std::uint32_t>(&Hook_ActorReloadWeapon));
 			PatchMemoryNop(0x008A844E, 1);
 		}
 	}
