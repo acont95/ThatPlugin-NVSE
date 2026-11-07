@@ -130,6 +130,9 @@ powershell -NoProfile -ExecutionPolicy Unrestricted -File $(SolutionDir)package.
     <ClCompile Include="external\NVSE\nvse\nvse\SafeWrite.cpp" />
     <ClCompile Include="external\NVSE\nvse\nvse\Utilities.cpp" />
     <ClCompile Include="external\NVSE\nvse\nvse\utility.cpp" />
+    <ClCompile Include="src\definitions\BSSimpleArray.cpp" />
+    <ClCompile Include="src\definitions\ItemChange.cpp" />
+    <ClCompile Include="src\definitions\WeaponData.cpp" />
     <ClCompile Include="src\dllmain.c">
       <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
       </ForcedIncludeFiles>

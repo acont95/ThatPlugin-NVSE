@@ -9,12 +9,16 @@
 #include "Bethesda/ItemChange.hpp"
 #include "Bethesda/InventoryChanges.hpp"
 #include "Bethesda/BSTimer.hpp"
+#include "Bethesda/WeaponData.hpp"
+#include "Bethesda/BSSimpleArray.hpp"
 #include "Globals.hpp"
 
 constexpr char CONFIG_SECTION[] = "BetterRegenAmmo";
 
 CallDetour GetBestAmmoForWeaponDetour{};
 CallDetour AddWornDetour{};
+CallDetour GetItemHealthDetour{};
+CallDetour WeaponDataArrayDetour{};
 
 constexpr std::uint32_t ItemChange_HasModEffectActive_Addr = 0x004BDA70;
 constexpr std::uint32_t ItemChange_HasModEffectActiveF_Addr = 0x004BD8D0;
@@ -27,6 +31,8 @@ constexpr std::uint32_t ExtraDataList_GetWeaponModSlotActive_Addr = 0x00418C00;
 constexpr std::uint32_t TESObjectWEAP_GetModEffect_Addr = 0x004BD880;
 
 static bool g_bRegenFullChargeOnEquip = false;
+
+static thread_local CommonLib::BSSimpleArray<CommonLib::ItemChange, 1024> g_itemChangeArray{0x20, 0};
 
 static int getRegenValue(CommonLib::Actor* apActor, int aiShotCount)
 {
@@ -86,6 +92,7 @@ bool isWeaponItemChangeRegen(CommonLib::ItemChange* apWeapon) {
 
 			float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
 			if (fRegenRate > 0.0f) {
+				Console_Print("REGEN FOUND");
 				return true;
 			}
 		}
@@ -285,13 +292,41 @@ static CommonLib::BaseProcess* __fastcall Hook_GetCurrentProcess(CommonLib::Acto
 	return apActor->pCurrentProcess;
 }
 
+static float __fastcall Hook_GetItemHealth(CommonLib::ItemChange* apItemChange, void* edx, bool abPercentage)
+{
+	std::uint8_t* ebp = GetParentBasePtr(_AddressOfReturnAddress(), false);
+	CommonLib::BSSimpleArray<CommonLib::WeaponData, 1024> weaponDataArray = *reinterpret_cast<CommonLib::BSSimpleArray<CommonLib::WeaponData, 1024>*>(ebp - 0x68);
+	unsigned int uiIndex = *reinterpret_cast<unsigned int*>(ebp - 0xAC);
+	CommonLib::WeaponData* pWeaponData = &weaponDataArray.pBuffer[uiIndex];
+
+	g_weaponDataMap[pWeaponData] = apItemChange;
+	g_itemChangeArray.Add(*apItemChange);
+	return ThisStdCall<float>(GetItemHealthDetour.GetOverwrittenAddr(), apItemChange, abPercentage);
+}
+
+static void __fastcall Hook_WeaponDataDestructor(CommonLib::WeaponData* apWeaponData, void* edx)
+{
+	g_weaponDataMap.clear();
+	ThisStdCall<void>(WeaponDataArrayDetour.GetOverwrittenAddr(), apWeaponData);
+}
+
+bool isWeaponDataRegen(CommonLib::WeaponData* apWeaponData) {
+	if (auto it = g_weaponDataMap.find(apWeaponData); it != g_weaponDataMap.end()) {
+		CommonLib::ItemChange* pItemChange = it->second;
+
+		return isWeaponItemChangeRegen(pItemChange);
+	}
+
+	return false;
+}
+
 static __declspec(naked) void Hook_SkipUpdateInventoryDataRegenReload()
 {
 	__asm
 	{
-		mov     edx, [ebp - 0x2C]
+		mov     edx, [ebp - 0xD0]
 		push    edx
-		call    isWeaponItemChangeRegen
+		call    isWeaponDataRegen
 		add     esp, 0x4
 
 		test    al, al
@@ -484,9 +519,11 @@ void installRegenAmmoHooks() {
 		// Use NVSE Extra Data for storing float timer
 		WriteRelCall(0x008895EE, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentProcess));
 
-		// Hook CombatState::UpdateInventoryData to skip NPC periodic and out of ammo reload for regen weapons
-		// Also skips removing weapon from consideration if no ammo in inventory
+		// Hook CombatState::UpdateInventoryData to skip NPC out of ammo reload for regen weapons
+		// Also skips removing weapon from consideration if no ammo in inventory 
 		WriteRelJump(0x009998F5, reinterpret_cast<std::uint32_t>(&Hook_SkipUpdateInventoryDataRegenReload));
+		GetItemHealthDetour.WriteRelCall(0x00999774, reinterpret_cast<std::uint32_t>(&Hook_GetItemHealth));
+		WeaponDataArrayDetour.WriteRelCall(0x0099A271, reinterpret_cast<std::uint32_t>(&Hook_WeaponDataDestructor));
 
 		// Hook Actor::ReloadWeapon to set current ammo for regen weapons
 		WriteRelJump(0x008A8449, reinterpret_cast<std::uint32_t>(&Hook_ActorReloadWeapon));
