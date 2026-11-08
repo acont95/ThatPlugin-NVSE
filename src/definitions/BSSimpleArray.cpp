@@ -51,7 +51,7 @@ namespace CommonLib {
 
 	template <typename T, std::uint32_t N>
 	T* BSSimpleArray<T, N>::_Allocate(unsigned int aiSizeInItem) {
-		return CdeclCall<T*>(0x00401000, aiSizeInItem);
+		return CdeclCall<T*>(0x00401000, sizeof(T) * aiSizeInItem);
 	}
 
 	template <typename T, std::uint32_t N>
