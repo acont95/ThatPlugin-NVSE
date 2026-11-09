@@ -25,8 +25,8 @@
 IDebugLog		gLog("logs\\ThatPlugin-NVSE.log");
 PluginHandle	g_pluginHandle = kPluginHandle_Invalid;
 
-constexpr std::uint32_t PLUGIN_VERSION = 46;
-constexpr char g_PluginVersion[] = "0.4.6";
+constexpr std::uint32_t PLUGIN_VERSION = 50;
+constexpr char g_PluginVersion[] = "0.5.0";
 
 const std::filesystem::path g_dataPath = "Data";
 const std::filesystem::path g_pluginsPath = g_dataPath / "NVSE/Plugins";
