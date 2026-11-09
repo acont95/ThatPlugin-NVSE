@@ -95,7 +95,6 @@ bool isWeaponItemChangeRegen(CommonLib::ItemChange* apWeapon) {
 
 			float fRegenRate = ThisStdCall<float>(TESObjectWEAP_GetAmmoRegenRate_Addr, pWeapon, bIsRegenMod);
 			if (fRegenRate > 0.0f) {
-				Console_Print("REGEN FOUND");
 				return true;
 			}
 		}
@@ -308,16 +307,22 @@ static void copySimpleList(CommonLib::BSSimpleList<T>* apSource, CommonLib::BSSi
 
 static float __fastcall Hook_GetItemHealth(CommonLib::ItemChange* apItemChange, void* edx, bool abPercentage)
 {
-	CommonLib::ItemChange itemChangeTmp = *apItemChange;
+	unsigned int iIndex = g_itemChangeArray.AddUninitialized();
+	CommonLib::ItemChange* pItemChange = &g_itemChangeArray.Get(iIndex);
+
+	new (pItemChange) CommonLib::ItemChange{};
+
+	pItemChange->iNumber = apItemChange->iNumber;
+	pItemChange->pContainerObj = apItemChange->pContainerObj;
+	pItemChange->pExtraObjectList = nullptr;
 
 	if (apItemChange->pExtraObjectList) {
-		CommonLib::BSSimpleList<CommonLib::ExtraDataList*>* pListCopy = New<CommonLib::BSSimpleList<CommonLib::ExtraDataList*>, BSSimpleList_Constructor_Addr>();
-		copySimpleList(apItemChange->pExtraObjectList, pListCopy);
-		itemChangeTmp.pExtraObjectList = pListCopy;
-	}
+		pItemChange->pExtraObjectList =
+			New<CommonLib::BSSimpleList<CommonLib::ExtraDataList*>, BSSimpleList_Constructor_Addr>();
 
-	g_itemChangeArray.Add(itemChangeTmp);
-	itemChangeTmp.pExtraObjectList = nullptr;
+		copySimpleList(apItemChange->pExtraObjectList,
+			pItemChange->pExtraObjectList);
+	}
 
 	return ThisStdCall<float>(GetItemHealthDetour.GetOverwrittenAddr(), apItemChange, abPercentage);
 }
@@ -334,7 +339,7 @@ static void __fastcall Hook_WeaponDataDestructor(CommonLib::BSSimpleArray<Common
 	ThisStdCall<void>(WeaponDataArrayDetour.GetOverwrittenAddr(), apWeaponData);
 }
 
-bool isWeaponDataRegen(CommonLib::WeaponData* apWeaponData, unsigned int aiIndex) {
+bool isArrayItemChangeRegen(unsigned int aiIndex) {
 	CommonLib::ItemChange& pItemChange = g_itemChangeArray.Get(aiIndex);
 	return isWeaponItemChangeRegen(&pItemChange);
 }
@@ -345,10 +350,8 @@ static __declspec(naked) void Hook_SkipUpdateInventoryDataRegenReload()
 	{
 		mov     edx, [ebp - 0xBC]
 		push    edx
-		mov     edx, [ebp - 0xD0]
-		push    edx
-		call    isWeaponDataRegen
-		add     esp, 0x8
+		call    isArrayItemChangeRegen
+		add     esp, 0x4
 
 		test    al, al
 		jnz     skip_branch
@@ -540,9 +543,8 @@ void installRegenAmmoHooks() {
 		// Use NVSE Extra Data for storing float timer
 		WriteRelCall(0x008895EE, reinterpret_cast<std::uint32_t>(&Hook_GetCurrentProcess));
 
-		// Hook CombatState::UpdateInventoryData to skip NPC out of ammo reload for regen weapons
-		// Also skips removing weapon from consideration if no ammo in inventory 
-		//WriteRelJump(0x009998F5, reinterpret_cast<std::uint32_t>(&Hook_SkipUpdateInventoryDataRegenReload));
+		// Skips removing weapon from consideration if no ammo in inventory when updating NPC inventory data
+		WriteRelJump(0x009998F5, reinterpret_cast<std::uint32_t>(&Hook_SkipUpdateInventoryDataRegenReload));
 		GetItemHealthDetour.WriteRelCall(0x00999774, reinterpret_cast<std::uint32_t>(&Hook_GetItemHealth));
 		WeaponDataRemoveFastDetour.WriteRelCall(0x00999C9C, reinterpret_cast<std::uint32_t>(&Hook_WeaponDataRemoveFast));
 		WeaponDataArrayDetour.WriteRelCall(0x0099A271, reinterpret_cast<std::uint32_t>(&Hook_WeaponDataDestructor));
