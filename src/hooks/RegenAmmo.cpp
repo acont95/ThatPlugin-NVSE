@@ -20,6 +20,7 @@ CallDetour AddWornDetour{};
 CallDetour GetItemHealthDetour{};
 CallDetour WeaponDataArrayDetour{};
 CallDetour WeaponDataRemoveFastDetour{};
+CallDetour Get3DDetour{};
 
 constexpr std::uint32_t ItemChange_HasModEffectActive_Addr = 0x004BDA70;
 constexpr std::uint32_t ItemChange_HasModEffectActiveF_Addr = 0x004BD8D0;
@@ -513,6 +514,26 @@ static __declspec(naked) void Hook_SkipLoadGameAmmoCheck()
 }
 
 
+static CommonLib::NiAVObject* __fastcall Hook_Get3D(CommonLib::TESObjectREFR* apRef, void* edx)
+{
+	CommonLib::Actor* pActor = static_cast<CommonLib::Actor*>(apRef);
+	if (isActorUsingRegenWeapon(pActor)) {
+		CommonLib::BaseProcess* pCurrentProcess = pActor->pCurrentProcess;
+		if (pCurrentProcess) {
+			CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+			CommonLib::ItemChange* pCurrentAmmo = pCurrentProcess->GetCurrentAmmo();
+			if (pCurrentWeapon && !pCurrentAmmo) {
+				CommonLib::TESObjectWEAP* pWeapon = static_cast<CommonLib::TESObjectWEAP*>(pCurrentWeapon->pContainerObj);
+				bool bIsClipMod = ThisStdCall<bool>(ItemChange_HasModEffectActive_Addr, pCurrentWeapon, CommonLib::WEAPON_MOD_INCREASE_CLIP_SIZE);
+				pActor->ReloadWeaponNV(pWeapon, 0, bIsClipMod, 1);
+			}
+		}
+	}
+
+	return ThisStdCall<CommonLib::NiAVObject*>(Get3DDetour.GetOverwrittenAddr(), apRef);
+}
+
+
 void installRegenAmmoHooks() {
 	if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bEnabled")) {
 
@@ -553,6 +574,8 @@ void installRegenAmmoHooks() {
 		WriteRelJump(0x008A8449, reinterpret_cast<std::uint32_t>(&Hook_ActorReloadWeapon));
 		PatchMemoryNop(0x008A844E, 1);
 
+		// Hook Actor::LoadGame to call ReloadWeaponNV on first load when not called by MiddleHighProcess::LoadGame
+		Get3DDetour.WriteRelCall(0x008AB8E7, reinterpret_cast<std::uint32_t>(&Hook_Get3D));
 
 		if (Globals::g_Ini.GetBoolValue(CONFIG_SECTION, "bRegenFullChargeOnEquip"))
 		{
