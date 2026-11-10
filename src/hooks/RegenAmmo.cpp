@@ -38,6 +38,26 @@ static bool g_bRegenFullChargeOnEquip = false;
 
 static thread_local CommonLib::BSSimpleArray<CommonLib::ItemChange, 1024> g_itemChangeArray{0x20, 0};
 
+static ActorRegenTickExtraData* getActorRegenExtraData(CommonLib::Actor* apActor) {
+	Actor* pActorForm = reinterpret_cast<Actor*>(apActor);
+	NiPointer<ActorRegenTickExtraData> pExtraRegenData =
+		(ActorRegenTickExtraData*)PluginFormExtraData::Get(
+			Globals::g_dataInterface,
+			pActorForm,
+			ActorRegenTickExtraData::GetName()
+		);
+
+	if (pExtraRegenData == nullptr) {
+		ActorRegenTickExtraData* pNew = New<ActorRegenTickExtraData>();
+		new (pNew) ActorRegenTickExtraData();
+
+		pExtraRegenData = pNew;
+		PluginFormExtraData::Add(Globals::g_dataInterface, pActorForm, pExtraRegenData);
+	}
+
+	return pExtraRegenData;
+}
+
 static int getRegenValue(CommonLib::Actor* apActor, int aiShotCount)
 {
 	CommonLib::PlayerCharacter* pPlayer = CommonLib::PlayerCharacter::GetPlayerSingleton();
@@ -54,21 +74,7 @@ static int getRegenValue(CommonLib::Actor* apActor, int aiShotCount)
 		cShotsSinceLastAmmoRegen = reinterpret_cast<std::uint8_t*>(&pPlayer->cShotsSinceLastAmmoRegen);
 	}
 	else {
-		Actor* pActorForm = reinterpret_cast<Actor*>(apActor);
-		pExtraRegenData =
-			(ActorRegenTickExtraData*)PluginFormExtraData::Get(
-				Globals::g_dataInterface,
-				pActorForm,
-				ActorRegenTickExtraData::GetName()
-			);
-
-		if (pExtraRegenData == nullptr) {
-			ActorRegenTickExtraData* pNew = New<ActorRegenTickExtraData>();
-			new (pNew) ActorRegenTickExtraData();
-
-			pExtraRegenData = pNew;
-			PluginFormExtraData::Add(Globals::g_dataInterface, pActorForm, pExtraRegenData);
-		}
+		pExtraRegenData = getActorRegenExtraData(apActor);
 		cShotsSinceLastAmmoRegen = &pExtraRegenData->cShotsSinceLastAmmoRegen;
 	}
 	
@@ -276,20 +282,7 @@ static void actorRegenAmmo(CommonLib::Actor* apActor) {
 			if (fRegenRate > 0.0f) {
 				CommonLib::BSTimer* pAppTimer = CommonLib::BSTimer::GetAppTimerSingleton();
 				Actor* pActorForm = reinterpret_cast<Actor*>(apActor);
-				NiPointer<ActorRegenTickExtraData> pExtraRegenData =
-					(ActorRegenTickExtraData*) PluginFormExtraData::Get(
-						Globals::g_dataInterface,
-						pActorForm,
-						ActorRegenTickExtraData::GetName()
-					);
-
-				if (pExtraRegenData == nullptr) {
-					ActorRegenTickExtraData* pNew = New<ActorRegenTickExtraData>();
-					new (pNew) ActorRegenTickExtraData();
-
-					pExtraRegenData = pNew;
-					PluginFormExtraData::Add(Globals::g_dataInterface, pActorForm, pExtraRegenData);
-				}
+				NiPointer<ActorRegenTickExtraData> pExtraRegenData = getActorRegenExtraData(apActor);
 
 				float fTimeSinceLastAmmoRegenTick = pExtraRegenData->fTimeSinceLastAmmoRegenTick;
 				fTimeSinceLastAmmoRegenTick -= pAppTimer->fDelta;
