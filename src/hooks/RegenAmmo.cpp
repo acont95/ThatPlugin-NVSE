@@ -47,21 +47,44 @@ static int getRegenValue(CommonLib::Actor* apActor, int aiShotCount)
 	}
 
 	int iRegenSubtract = 0;
+
+	std::uint8_t* cShotsSinceLastAmmoRegen = nullptr;
+	NiPointer<ActorRegenTickExtraData> pExtraRegenData = nullptr;
 	if (apActor == pPlayer) {
-		CommonLib::BaseProcess* pCurrentProcess = pPlayer->pCurrentProcess;
-		if (pCurrentProcess && pCurrentProcess->GetCurrentWeapon()) {
-			float fRegen = 0.0f;
-			CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+		cShotsSinceLastAmmoRegen = reinterpret_cast<std::uint8_t*>(&pPlayer->cShotsSinceLastAmmoRegen);
+	}
+	else {
+		Actor* pActorForm = reinterpret_cast<Actor*>(apActor);
+		pExtraRegenData =
+			(ActorRegenTickExtraData*)PluginFormExtraData::Get(
+				Globals::g_dataInterface,
+				pActorForm,
+				ActorRegenTickExtraData::GetName()
+			);
 
-			std::uint8_t cModEffect = CommonLib::WEAPON_MOD_EFFECT::WEAPON_MOD_AMMO_REGEN_SHOT;
-			if (ThisStdCall<bool>(ItemChange_HasModEffectActiveF_Addr, pCurrentWeapon, cModEffect, &fRegen)) {
-				pPlayer->cShotsSinceLastAmmoRegen += aiShotCount;
+		if (pExtraRegenData == nullptr) {
+			ActorRegenTickExtraData* pNew = New<ActorRegenTickExtraData>();
+			new (pNew) ActorRegenTickExtraData();
 
-				const int iRegen = static_cast<int>(fRegen);
-				if (pPlayer->cShotsSinceLastAmmoRegen >= static_cast<int>(fRegen)) {
-					pPlayer->cShotsSinceLastAmmoRegen -= iRegen;
-					iRegenSubtract = 1;
-				}
+			pExtraRegenData = pNew;
+			PluginFormExtraData::Add(Globals::g_dataInterface, pActorForm, pExtraRegenData);
+		}
+		cShotsSinceLastAmmoRegen = &pExtraRegenData->cShotsSinceLastAmmoRegen;
+	}
+	
+
+	CommonLib::BaseProcess* pCurrentProcess = apActor->pCurrentProcess;
+	if (pCurrentProcess && pCurrentProcess->GetCurrentWeapon()) {
+		float fRegen = 0.0f;
+		CommonLib::ItemChange* pCurrentWeapon = pCurrentProcess->GetCurrentWeapon();
+		std::uint8_t cModEffect = CommonLib::WEAPON_MOD_EFFECT::WEAPON_MOD_AMMO_REGEN_SHOT;
+		if (ThisStdCall<bool>(ItemChange_HasModEffectActiveF_Addr, pCurrentWeapon, cModEffect, &fRegen)) {
+			*cShotsSinceLastAmmoRegen += aiShotCount;
+
+			const int iRegen = static_cast<int>(fRegen);
+			if (*cShotsSinceLastAmmoRegen >= static_cast<int>(fRegen)) {
+				*cShotsSinceLastAmmoRegen -= iRegen;
+				iRegenSubtract = 1;
 			}
 		}
 	}
